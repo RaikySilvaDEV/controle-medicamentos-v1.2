@@ -3,11 +3,14 @@ import { History, Home, Pill, Settings, UserRound } from 'lucide-react';
 import type { DB, Med, Role, Tab } from './model';
 import { CHANNEL, KEY, dueFor, load } from './model';
 import { AddModal, AlarmOverlay, ConfirmationOverlay, DetailSheet, NavButton } from './components';
+import { AuthGate, OnboardingGate } from './auth';
 import { HistoryView, HomeView, MedsView, SettingsView } from './views';
 
 function App() {
   const [db, setDb] = useState<DB>(load);
-  const [role, setRole] = useState<Role>(() => (localStorage.getItem('cm-role') as Role) || 'patient');
+  const [authenticated, setAuthenticated] = useState(() => localStorage.getItem('cm-v12-authenticated') === '1' || !!localStorage.getItem('cm-role'));
+  const [onboarded, setOnboarded] = useState(() => !!localStorage.getItem('cm-v12-role') || !!localStorage.getItem('cm-role'));
+  const [role, setRole] = useState<Role>(() => (localStorage.getItem('cm-v12-role') as Role) || (localStorage.getItem('cm-role') as Role) || 'patient');
   const [tab, setTab] = useState<Tab>('home');
   const [now, setNow] = useState(Date.now());
   const [alarm, setAlarm] = useState<{ med: Med; due: Date } | null>(null);
@@ -47,9 +50,12 @@ function App() {
   function askNotifications() { if (!('Notification' in window)) return alert('Este navegador não oferece notificações.'); Notification.requestPermission().then(p => save({ ...db, settings: { ...db.settings, notifications: p === 'granted' } })); }
   function testAlarm() { startSound(); window.setTimeout(stopSound, 5000); }
 
+  if (!authenticated) return <AuthGate onComplete={(r, name) => { setDb(x => ({ ...x, patientName: name || x.patientName })); setRole(r); setAuthenticated(true); }}/>;
+  if (!onboarded) return <OnboardingGate db={db} onComplete={(r) => { localStorage.setItem('cm-v12-role', r); setRole(r); setOnboarded(true); }}/>;
+
   const activePending = alarm || (!done && pending ? { med: pending.m, due: pending.due } : null);
   return <div className="min-h-screen bg-[#f5f7fb] text-[#182033]">
-    <header className="border-b border-slate-100 bg-white"><div className="mx-auto flex max-w-xl items-center justify-between px-5 py-5"><div className="flex items-center gap-3"><div className="grid h-12 w-12 place-items-center rounded-2xl bg-blue-50 text-blue-600 shadow-[0_8px_25px_rgba(37,99,235,.10)]"><Pill size={27}/></div><div><div className="text-[10px] font-bold tracking-[.28em] text-slate-400">CONTROLE DE</div><h1 className="text-[27px] font-medium leading-none tracking-tight">Medicamentos</h1><div className="mt-2 flex items-center gap-1.5 text-sm text-slate-500"><UserRound size={14}/> {role === 'patient' ? 'Paciente' : 'Acompanhando'}: {db.patientName}</div></div></div><button onClick={() => { localStorage.removeItem('cm-role'); setRole('patient'); }} className="rounded-2xl bg-blue-50 px-5 py-3 font-bold text-blue-600">Sair</button></div></header>
+    <header className="border-b border-slate-100 bg-white"><div className="mx-auto flex max-w-xl items-center justify-between px-5 py-5"><div className="flex items-center gap-3"><div className="grid h-12 w-12 place-items-center rounded-2xl bg-blue-50 text-blue-600 shadow-[0_8px_25px_rgba(37,99,235,.10)]"><Pill size={27}/></div><div><div className="text-[10px] font-bold tracking-[.28em] text-slate-400">CONTROLE DE</div><h1 className="text-[27px] font-medium leading-none tracking-tight">Medicamentos</h1><div className="mt-2 flex items-center gap-1.5 text-sm text-slate-500"><UserRound size={14}/> {role === 'patient' ? 'Paciente' : 'Acompanhando'}: {db.patientName}</div></div></div><button onClick={() => { localStorage.removeItem('cm-role'); localStorage.removeItem('cm-v12-authenticated'); localStorage.removeItem('cm-v12-role'); setAuthenticated(false); setOnboarded(false); setRole('patient'); }} className="rounded-2xl bg-blue-50 px-5 py-3 font-bold text-blue-600">Sair</button></div></header>
     <main className="mx-auto max-w-xl px-5 pb-28 pt-5">
       {tab === 'home' && <HomeView db={db} activePending={activePending} next={next} upcoming={upcoming} now={now} onDetail={setDetail}/>} 
       {tab === 'meds' && <MedsView db={db} onAdd={() => setShowAdd(true)} onDetail={setDetail} onPause={pause} onStart={setFirstTime}/>} 
