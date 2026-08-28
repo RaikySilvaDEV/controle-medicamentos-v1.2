@@ -19,7 +19,7 @@ function App() {
   const timer = useRef<number | null>(null);
 
   useEffect(() => { const id = window.setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, []);
-  useEffect(() => { localStorage.setItem(KEY, JSON.stringify(db)); try { const bc = new BroadcastChannel(CHANNEL); bc.postMessage(db); bc.close(); } catch {} }, [db]);
+  useEffect(() => { localStorage.setItem(KEY, JSON.stringify(db)); }, [db]);
   useEffect(() => { try { const bc = new BroadcastChannel(CHANNEL); bc.onmessage = e => e.data?.meds && setDb(e.data); return () => bc.close(); } catch { return; } }, []);
 
   const schedule = useMemo(() => db.meds.map(m => ({ m, due: dueFor(m, db.events) })).filter((x): x is { m: Med; due: Date } => !!x.due).sort((a, b) => +a.due - +b.due), [db]);
@@ -36,7 +36,7 @@ function App() {
 
   function startSound() { try { const C = window.AudioContext || (window as any).webkitAudioContext; if (!C) return; stopSound(); const c = new C(); audio.current = c; const beep = () => { const o = c.createOscillator(), g = c.createGain(); o.type = 'square'; o.frequency.value = 880; g.gain.value = .16; o.connect(g); g.connect(c.destination); o.start(); window.setTimeout(() => o.stop(), 500); }; beep(); timer.current = window.setInterval(beep, 1100); } catch {} }
   function stopSound() { if (timer.current) clearInterval(timer.current); timer.current = null; audio.current?.close(); audio.current = null; }
-  function save(x: DB) { setDb({ ...x }); }
+  function save(x: DB) { setDb({ ...x }); try { const bc = new BroadcastChannel(CHANNEL); bc.postMessage(x); bc.close(); } catch {} }
   function confirmMed(m: Med) { stopSound(); const item = schedule.find(x => x.m.id === m.id); if (!item) return; const e: DB['events'][number] = { id: crypto.randomUUID(), medId: m.id, scheduled: item.due.toISOString(), confirmed: new Date(now).toISOString(), by: role === 'patient' ? 'Paciente' : 'Acompanhante' }; save({ ...db, events: [...db.events, e] }); setAlarm(null); setSnoozes(s => ({ ...s, [m.id]: 0 })); setDone({ med: m, event: e, next: new Date(now + m.interval * 60000) }); }
   function snooze(m: Med, min: number) { stopSound(); setSnoozes(s => ({ ...s, [m.id]: Date.now() + min * 60000 })); setAlarm(null); }
   function setFirstTime(m: Med) { save({ ...db, meds: db.meds.map(z => z.id === m.id ? { ...z, start: new Date(now).toISOString(), active: true } : z) }); }
