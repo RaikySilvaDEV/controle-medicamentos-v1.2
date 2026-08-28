@@ -22,14 +22,14 @@ function App() {
   useEffect(() => { localStorage.setItem(KEY, JSON.stringify(db)); try { const bc = new BroadcastChannel(CHANNEL); bc.postMessage(db); bc.close(); } catch {} }, [db]);
   useEffect(() => { try { const bc = new BroadcastChannel(CHANNEL); bc.onmessage = e => e.data?.meds && setDb(e.data); return () => bc.close(); } catch { return; } }, []);
 
-  const schedule = useMemo(() => db.meds.map(m => ({ m, due: dueFor(m, db.events) })).filter(x => x.due).sort((a, b) => +a.due! - +b.due!), [db]);
-  const pending = schedule.filter(x => +(x.due!) <= now && (snoozes[x.m.id] || 0) <= now)[0];
-  const upcoming = schedule.filter(x => +(x.due!) > now);
+  const schedule = useMemo(() => db.meds.map(m => ({ m, due: dueFor(m, db.events) })).filter((x): x is { m: Med; due: Date } => !!x.due).sort((a, b) => +a.due - +b.due), [db]);
+  const pending = schedule.filter(x => x.due.getTime() <= now && (snoozes[x.m.id] || 0) <= now)[0];
+  const upcoming = schedule.filter(x => x.due.getTime() > now);
   const next = upcoming[0];
 
   useEffect(() => {
     if (!pending || alarm || done) return;
-    setAlarm({ med: pending.m, due: pending.due! });
+    setAlarm({ med: pending.m, due: pending.due });
     if (db.settings?.sound !== false) startSound();
     if (db.settings?.notifications && 'Notification' in window && Notification.permission === 'granted') new Notification('🔔 Hora do medicamento', { body: `Dose pendente: ${pending.m.name}` });
   }, [pending?.m.id, pending?.due?.getTime(), alarm, done]);
@@ -37,7 +37,7 @@ function App() {
   function startSound() { try { const C = window.AudioContext || (window as any).webkitAudioContext; if (!C) return; stopSound(); const c = new C(); audio.current = c; const beep = () => { const o = c.createOscillator(), g = c.createGain(); o.type = 'square'; o.frequency.value = 880; g.gain.value = .16; o.connect(g); g.connect(c.destination); o.start(); window.setTimeout(() => o.stop(), 500); }; beep(); timer.current = window.setInterval(beep, 1100); } catch {} }
   function stopSound() { if (timer.current) clearInterval(timer.current); timer.current = null; audio.current?.close(); audio.current = null; }
   function save(x: DB) { setDb({ ...x }); }
-  function confirmMed(m: Med) { stopSound(); const item = schedule.find(x => x.m.id === m.id); if (!item) return; const e: DB['events'][number] = { id: crypto.randomUUID(), medId: m.id, scheduled: item.due!.toISOString(), confirmed: new Date(now).toISOString(), by: role === 'patient' ? 'Paciente' : 'Acompanhante' }; save({ ...db, events: [...db.events, e] }); setAlarm(null); setSnoozes(s => ({ ...s, [m.id]: 0 })); setDone({ med: m, event: e, next: new Date(now + m.interval * 60000) }); }
+  function confirmMed(m: Med) { stopSound(); const item = schedule.find(x => x.m.id === m.id); if (!item) return; const e: DB['events'][number] = { id: crypto.randomUUID(), medId: m.id, scheduled: item.due.toISOString(), confirmed: new Date(now).toISOString(), by: role === 'patient' ? 'Paciente' : 'Acompanhante' }; save({ ...db, events: [...db.events, e] }); setAlarm(null); setSnoozes(s => ({ ...s, [m.id]: 0 })); setDone({ med: m, event: e, next: new Date(now + m.interval * 60000) }); }
   function snooze(m: Med, min: number) { stopSound(); setSnoozes(s => ({ ...s, [m.id]: Date.now() + min * 60000 })); setAlarm(null); }
   function setFirstTime(m: Med) { save({ ...db, meds: db.meds.map(z => z.id === m.id ? { ...z, start: new Date(now).toISOString(), active: true } : z) }); }
   function pause(m: Med) { save({ ...db, meds: db.meds.map(z => z.id === m.id ? { ...z, active: !z.active } : z) }); }
@@ -47,7 +47,7 @@ function App() {
   function askNotifications() { if (!('Notification' in window)) return alert('Este navegador não oferece notificações.'); Notification.requestPermission().then(p => save({ ...db, settings: { ...db.settings, notifications: p === 'granted' } })); }
   function testAlarm() { startSound(); window.setTimeout(stopSound, 5000); }
 
-  const activePending = alarm || (!done && pending ? { med: pending.m, due: pending.due! } : null);
+  const activePending = alarm || (!done && pending ? { med: pending.m, due: pending.due } : null);
   return <div className="min-h-screen bg-[#f5f7fb] text-[#182033]">
     <header className="border-b border-slate-100 bg-white"><div className="mx-auto flex max-w-xl items-center justify-between px-5 py-5"><div className="flex items-center gap-3"><div className="grid h-12 w-12 place-items-center rounded-2xl bg-blue-50 text-blue-600 shadow-[0_8px_25px_rgba(37,99,235,.10)]"><Pill size={27}/></div><div><div className="text-[10px] font-bold tracking-[.28em] text-slate-400">CONTROLE DE</div><h1 className="text-[27px] font-medium leading-none tracking-tight">Medicamentos</h1><div className="mt-2 flex items-center gap-1.5 text-sm text-slate-500"><UserRound size={14}/> {role === 'patient' ? 'Paciente' : 'Acompanhando'}: {db.patientName}</div></div></div><button onClick={() => { localStorage.removeItem('cm-role'); setRole('patient'); }} className="rounded-2xl bg-blue-50 px-5 py-3 font-bold text-blue-600">Sair</button></div></header>
     <main className="mx-auto max-w-xl px-5 pb-28 pt-5">
