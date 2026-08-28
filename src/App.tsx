@@ -57,7 +57,7 @@ function App() {
       {tab === 'settings' && <SettingsView db={db} onNotifications={askNotifications} onAlarm={testAlarm}/>} 
     </main>
     <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-100 bg-white/95 px-2 pb-[max(8px,env(safe-area-inset-bottom))] pt-2 backdrop-blur"><div className="mx-auto grid max-w-xl grid-cols-4 gap-1"><NavButton active={tab === 'home'} icon={<Home size={22}/>} label="Início" onClick={() => setTab('home')}/><NavButton active={tab === 'meds'} icon={<Pill size={22}/>} label="Medicamentos" onClick={() => setTab('meds')}/><NavButton active={tab === 'history'} icon={<History size={22}/>} label="Histórico" onClick={() => setTab('history')}/><NavButton active={tab === 'settings'} icon={<Settings size={22}/>} label="Configurações" onClick={() => setTab('settings')}/></div></nav>
-    {activePending && <AlarmOverlay med={activePending.med} due={activePending.due} now={now} onConfirm={() => confirmMed(activePending.med)} onSnooze={m => snooze(activePending.med, m)}/>} 
+    {activePending && <AlarmOverlay med={activePending.med} due={activePending.due} now={now} label={role === 'patient' ? 'USADO' : 'ADMINISTRADO'} onConfirm={() => confirmMed(activePending.med)} onSnooze={m => snooze(activePending.med, m)}/>} 
     {done && <ConfirmationOverlay done={done} onClose={() => setDone(null)} onNext={() => { setDone(null); setTab('home'); }}/>} 
     {detail && <DetailSheet med={detail} events={db.events} now={now} onClose={() => setDetail(null)} onConfirm={() => { if (pending?.m.id === detail.id) confirmMed(detail); }} onPause={() => pause(detail)} onEdit={updateMed} onDelete={() => removeMed(detail)}/>} 
     {showAdd && <AddModal onClose={() => setShowAdd(false)} onSave={addMed}/>} 
