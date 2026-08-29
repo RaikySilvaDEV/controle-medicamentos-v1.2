@@ -24,7 +24,9 @@ export function HomeView({ db, activePending, next, upcoming, now, onDetail }: {
     <section className="relative mb-7 overflow-hidden rounded-[28px] bg-gradient-to-br from-blue-600 to-blue-700 p-7 text-white shadow-[0_18px_45px_rgba(37,99,235,.20)]">
       <div className="absolute -bottom-20 -right-12 h-52 w-52 rounded-full border-[30px] border-white/5"/>
       <div className="relative">
-        <div className="flex items-center gap-3 text-[58px] font-black leading-none tracking-tight"><Clock3 size={43}/>{next ? fmt(next.due) : '—'}</div>
+        <div className="text-sm font-bold uppercase tracking-[.18em] text-white/75">Próxima medicação</div>
+        <div className="mt-2 text-[24px] font-extrabold leading-tight">{next ? next.m.name : 'Nenhuma medicação'}</div>
+        <div className="mt-4 flex items-center gap-3 text-[52px] font-black leading-none tracking-tight"><Clock3 size={43}/>{next ? fmt(next.due) : '—'}</div>
         {next ? <><div className="mt-5 text-[21px] font-extrabold">Em {duration(next.due.getTime() - now)}</div><p className="mt-1 text-base text-white/80">Você será alertado quando chegar a hora.</p></> : <><div className="mt-5 text-xl font-bold">Nenhum horário definido</div><p className="mt-2 text-white/75">Defina o primeiro horário de cada medicamento.</p></>}
       </div>
     </section>
