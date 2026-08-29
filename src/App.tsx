@@ -6,7 +6,7 @@ import { AddModal, AlarmOverlay, ConfirmationOverlay, DetailSheet, EditModal, Na
 import { AuthGate, OnboardingGate } from './auth';
 import { HistoryView, HomeView, MedsView, SettingsView } from './views';
 import { supabase } from './supabase';
-import { deleteMedication, insertDose, loadCloud, seedPatient, subscribeCloud, upsertMedication } from './cloud';
+import { deleteMedication, getExistingProfile, insertDose, loadCloud, seedPatient, subscribeCloud, upsertMedication } from './cloud';
 
 function App() {
   const [db, setDb] = useState<DB>(load);
@@ -20,20 +20,40 @@ function App() {
   const [showAdd, setShowAdd] = useState(false), [detail, setDetail] = useState<Med | null>(null), [edit, setEdit] = useState<Med | null>(null), [startMed, setStartMed] = useState<Med | null>(null), [snoozes, setSnoozes] = useState<Record<string, number>>({});
   const audio = useRef<AudioContext | null>(null), timer = useRef<number | null>(null), refreshLock = useRef(false);
 
+  async function hydrateSession() {
+    const existing = await getExistingProfile();
+    if (existing) {
+      localStorage.setItem('cm-v12-role', existing.role);
+      localStorage.setItem('cm-v12-patient-id', existing.patientId);
+      localStorage.setItem('cm-v12-name', existing.name);
+      setRole(existing.role); setPatientId(existing.patientId); setOnboarded(true);
+    } else {
+      localStorage.removeItem('cm-v12-role'); localStorage.removeItem('cm-v12-patient-id');
+      setOnboarded(false); setPatientId('');
+    }
+  }
+
   useEffect(() => {
     let mounted = true;
-    supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(async ({ data }) => {
       if (!mounted) return;
       setAuthenticated(!!data.session);
       if (!data.session) {
-        localStorage.removeItem('cm-v12-authenticated'); localStorage.removeItem('cm-v12-role'); localStorage.removeItem('cm-v12-patient-id'); setOnboarded(false);
-      } else localStorage.setItem('cm-v12-authenticated', '1');
+        localStorage.removeItem('cm-v12-authenticated'); localStorage.removeItem('cm-v12-role'); localStorage.removeItem('cm-v12-patient-id'); setOnboarded(false); setPatientId('');
+      } else {
+        localStorage.setItem('cm-v12-authenticated', '1');
+        try { await hydrateSession(); } catch (e) { console.error(e); }
+      }
       setAuthChecked(true);
     });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setAuthenticated(!!session);
-      if (session) localStorage.setItem('cm-v12-authenticated', '1');
-      else { localStorage.removeItem('cm-v12-authenticated'); localStorage.removeItem('cm-v12-role'); localStorage.removeItem('cm-v12-patient-id'); setOnboarded(false); stopSound(); }
+      if (session) {
+        localStorage.setItem('cm-v12-authenticated', '1');
+        try { await hydrateSession(); } catch (e) { console.error(e); }
+      } else {
+        localStorage.removeItem('cm-v12-authenticated'); localStorage.removeItem('cm-v12-role'); localStorage.removeItem('cm-v12-patient-id'); setOnboarded(false); setPatientId(''); stopSound();
+      }
     });
     return () => { mounted = false; listener.subscription.unsubscribe(); };
   }, []);
@@ -41,14 +61,12 @@ function App() {
   async function refresh(id = patientId) { if (!id || refreshLock.current) return; refreshLock.current = true; try { setDb(await loadCloud(id)); } catch (e) { console.error(e); } finally { refreshLock.current = false; } }
   useEffect(() => { if (authenticated && onboarded && patientId) refresh(); }, [authenticated, onboarded, patientId]);
   useEffect(() => { if (!authenticated || !onboarded || !patientId) return subscribeCloud(patientId, () => refresh()); }, [authenticated, onboarded, patientId]);
-  useEffect(() => { if (!authenticated || !onboarded || !patientId) return; seedPatient(patientId).then(() => refresh()).catch(console.error); }, [authenticated, onboarded, patientId]);
+  useEffect(() => { if (!authenticated || !onboarded || !patientId || role !== 'patient') return; seedPatient(patientId).then(() => refresh()).catch(console.error); }, [authenticated, onboarded, patientId, role]);
 
   const schedule = useMemo(() => db.meds.map(m => ({ m, due: dueFor(m, db.events) })).filter((x): x is { m: Med; due: Date } => !!x.due).sort((a, b) => +a.due - +b.due), [db]);
   const pending = schedule.filter(x => x.due.getTime() <= now && (snoozes[x.m.id] || 0) <= now)[0];
   const upcoming = schedule.filter(x => x.due.getTime() > now), next = upcoming[0];
 
-  // Nunca execute o alarme antes de existir uma sessão autenticada e um paciente carregado.
-  // Isso evita o áudio disparar na tela de login usando dados locais antigos.
   useEffect(() => {
     if (!authenticated || !onboarded || !patientId || !pending || alarm || done) return;
     setAlarm({ med: pending.m, due: pending.due }); startSound();
