@@ -1,16 +1,46 @@
 import { supabase } from './supabase'
 import type { DB, Event, Med, Role } from './model'
 
-export async function getExistingProfile(): Promise<{ role: Role; name: string; patientId: string } | null> {
+export type AccountProfile = {
+  name: string
+  role: Role
+  patientId: string
+  email: string
+  avatarUrl: string | null
+}
+
+export async function getExistingProfile(): Promise<AccountProfile | null> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
+  const fallbackName = String(user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Usuário')
+  const avatarUrl = String(user.user_metadata?.avatar_url || user.user_metadata?.picture || '') || null
+  const email = user.email || ''
   const { data: profile, error: profileError } = await supabase.from('profiles').select('name,role').eq('id', user.id).maybeSingle()
   if (profileError) throw profileError
   if (!profile || (profile.role !== 'patient' && profile.role !== 'companion')) return null
   const { data: membership, error: membershipError } = await supabase.from('patient_members').select('patient_id').eq('user_id', user.id).limit(1).maybeSingle()
   if (membershipError) throw membershipError
   if (!membership?.patient_id) return null
-  return { role: profile.role as Role, name: profile.name || 'Usuário', patientId: membership.patient_id as string }
+  return { role: profile.role as Role, name: profile.name || fallbackName, patientId: membership.patient_id as string, email, avatarUrl }
+}
+
+export async function updateOwnProfile(name: string, role: Role, patientId: string) {
+  const cleanName = name.trim()
+  if (cleanName.length < 2) throw new Error('Informe um nome válido.')
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) throw new Error('Sessão expirada. Entre novamente.')
+
+  const { error: profileError } = await supabase.from('profiles').update({ name: cleanName }).eq('id', user.id)
+  if (profileError) throw profileError
+
+  // O paciente é o dono do cadastro clínico; acompanhantes alteram apenas o próprio perfil.
+  if (role === 'patient') {
+    const { error: patientError } = await supabase.from('patients').update({ name: cleanName }).eq('id', patientId).eq('created_by', user.id)
+    if (patientError) throw patientError
+  }
+
+  localStorage.setItem('cm-v12-name', cleanName)
+  return cleanName
 }
 
 export async function getMembership(role: Role, name: string, code?: string) {
