@@ -20,37 +20,108 @@ const seed: DB = {
   ], events: [], settings: { sound: true, notifications: false }
 };
 
+/**
+ * Converte datas salvas em versões antigas sem deixar "Invalid Date" aparecer.
+ * Aceita ISO completo, datetime-local e horários antigos no formato HH:mm.
+ */
+export function parseDate(value: unknown): Date | null {
+  if (value instanceof Date) return Number.isFinite(value.getTime()) ? value : null;
+  if (typeof value === 'number') {
+    const d = new Date(value);
+    return Number.isFinite(d.getTime()) ? d : null;
+  }
+  if (typeof value !== 'string' || !value.trim()) return null;
+
+  const raw = value.trim();
+  const d = new Date(raw);
+  if (Number.isFinite(d.getTime())) return d;
+
+  const timeOnly = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(raw);
+  if (timeOnly) {
+    const today = new Date();
+    today.setHours(Number(timeOnly[1]), Number(timeOnly[2]), Number(timeOnly[3] || 0), 0);
+    return today;
+  }
+  return null;
+}
+
+function normalizeStoredDate(value: unknown): string | null {
+  const d = parseDate(value);
+  return d ? d.toISOString() : null;
+}
+
 export function load(): DB {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return structuredClone(seed);
     const parsed = JSON.parse(raw);
     if (!parsed?.meds || !Array.isArray(parsed.meds)) return structuredClone(seed);
+
+    const meds: Med[] = parsed.meds.map((m: Med) => ({
+      ...m,
+      start: normalizeStoredDate(m.start),
+      active: m.active !== false,
+      interval: Number.isFinite(Number(m.interval)) && Number(m.interval) > 0 ? Number(m.interval) : 1,
+      name: String(m.name || 'Medicamento'),
+      note: m.note || '',
+      photo: m.photo || null
+    }));
+
+    const events: Event[] = Array.isArray(parsed.events)
+      ? parsed.events.map((e: Event) => ({
+          ...e,
+          scheduled: normalizeStoredDate(e.scheduled) || String(e.scheduled || ''),
+          confirmed: normalizeStoredDate(e.confirmed) || String(e.confirmed || '')
+        }))
+      : [];
+
     return {
       ...seed, ...parsed,
-      events: Array.isArray(parsed.events) ? parsed.events : [],
+      events,
       settings: { ...seed.settings, ...(parsed.settings || {}) },
-      meds: parsed.meds.map((m: Med) => ({ ...m, active: m.active !== false, note: m.note || '', photo: m.photo || null }))
+      meds
     };
   } catch { return structuredClone(seed); }
 }
 
-export const fmt = (t: string | Date) => new Date(t).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-export const dateFmt = (t: string | Date) => new Date(t).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-export const duration = (ms: number) => { const m = Math.max(0, Math.floor(Math.abs(ms) / 60000)); const h = Math.floor(m / 60), r = m % 60; return h ? `${h}h ${String(r).padStart(2, '0')}min` : `${r}min`; };
+export const fmt = (t: string | Date | number) => {
+  const d = parseDate(t);
+  return d ? d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '—';
+};
+
+export const dateFmt = (t: string | Date | number) => {
+  const d = parseDate(t);
+  return d ? d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '—';
+};
+
+export const duration = (ms: number) => {
+  if (!Number.isFinite(ms)) return '—';
+  const m = Math.max(0, Math.floor(Math.abs(ms) / 60000));
+  const h = Math.floor(m / 60), r = m % 60;
+  return h ? `${h}h ${String(r).padStart(2, '0')}min` : `${r}min`;
+};
 
 /**
  * A dose nunca avança sozinha quando fica atrasada.
  * Sem confirmação, o vencimento continua sendo o horário original.
  * Depois da confirmação, a próxima dose é calculada a partir do horário
  * real da confirmação, exatamente como definido para atrasos.
+ *
+ * O primeiro horário definido pelo usuário representa uma dose que já foi
+ * tomada; portanto, a primeira próxima dose é start + interval.
  */
 export const dueFor = (m: Med, events: Event[]) => {
-  if (!m.active || !m.start) return null;
+  if (!m.active) return null;
+
   const last = [...events]
     .filter(e => e.medId === m.id)
-    .sort((a, b) => +new Date(b.confirmed) - +new Date(a.confirmed))[0];
-  return new Date(+(last?.confirmed || m.start) + m.interval * 60000);
+    .map(e => ({ ...e, confirmedDate: parseDate(e.confirmed) }))
+    .filter(e => e.confirmedDate)
+    .sort((a, b) => b.confirmedDate!.getTime() - a.confirmedDate!.getTime())[0];
+
+  const base = last?.confirmedDate || parseDate(m.start);
+  if (!base || !Number.isFinite(m.interval) || m.interval <= 0) return null;
+  return new Date(base.getTime() + m.interval * 60000);
 };
 
 export { seed };
