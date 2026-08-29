@@ -6,7 +6,7 @@ import { AddModal, AlarmOverlay, ConfirmationOverlay, DetailSheet, EditModal, Na
 import { AuthGate, OnboardingGate } from './auth';
 import { HistoryView, HomeView, MedsView, SettingsView } from './views';
 import { supabase } from './supabase';
-import { deleteMedication, getExistingProfile, insertDose, loadCloud, seedPatient, subscribeCloud, upsertMedication } from './cloud';
+import { deleteMedication, getExistingProfile, insertDose, loadCloud, subscribeCloud, upsertMedication } from './cloud';
 
 function App() {
   const [db, setDb] = useState<DB>(load);
@@ -61,7 +61,6 @@ function App() {
   async function refresh(id = patientId) { if (!id || refreshLock.current) return; refreshLock.current = true; try { setDb(await loadCloud(id)); } catch (e) { console.error(e); } finally { refreshLock.current = false; } }
   useEffect(() => { if (authenticated && onboarded && patientId) refresh(); }, [authenticated, onboarded, patientId]);
   useEffect(() => { if (!authenticated || !onboarded || !patientId) return subscribeCloud(patientId, () => refresh()); }, [authenticated, onboarded, patientId]);
-  useEffect(() => { if (!authenticated || !onboarded || !patientId || role !== 'patient') return; seedPatient(patientId).then(() => refresh()).catch(console.error); }, [authenticated, onboarded, patientId, role]);
 
   const schedule = useMemo(() => db.meds.map(m => ({ m, due: dueFor(m, db.events) })).filter((x): x is { m: Med; due: Date } => !!x.due).sort((a, b) => +a.due - +b.due), [db]);
   const pending = schedule.filter(x => x.due.getTime() <= now && (snoozes[x.m.id] || 0) <= now)[0];
