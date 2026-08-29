@@ -22,7 +22,7 @@ export async function getExistingProfile(): Promise<{ role: Role; name: string; 
 export async function getMembership(role: Role, name: string, code?: string) {
   const user = await ensureProfile(role, name)
   if (role === 'patient') {
-    const { data: existing } = await supabase.from('patient_members').select('patient_id').eq('user_id', user.id).eq('relation', 'owner').maybeSingle()
+    const { data: existing } = await supabase.from('patient_members').select('patient_id').eq('user_id', user.id).eq('relation', 'patient').maybeSingle()
     if (existing?.patient_id) return existing.patient_id as string
     const { data: patient, error } = await supabase.rpc('create_patient_for_current_user', { p_name: name.trim() || 'Paciente' })
     if (error) throw error
