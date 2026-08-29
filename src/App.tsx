@@ -25,12 +25,9 @@ function App() {
 
   useEffect(() => { const id = window.setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(id); }, []);
   useEffect(() => { localStorage.setItem(KEY, JSON.stringify(db)); }, [db]);
-  useEffect(() => {
-    try { const bc = new BroadcastChannel(CHANNEL); bc.onmessage = e => e.data?.meds && setDb(e.data); return () => bc.close(); } catch { return; }
-  }, []);
+  useEffect(() => { try { const bc = new BroadcastChannel(CHANNEL); bc.onmessage = e => e.data?.meds && setDb(e.data); return () => bc.close(); } catch { return; } }, []);
 
   const schedule = useMemo(() => db.meds.map(m => ({ m, due: dueFor(m, db.events) })).filter((x): x is { m: Med; due: Date } => !!x.due).sort((a, b) => +a.due - +b.due), [db]);
-  // Atraso é persistente: uma dose vencida continua sendo a dose atual até confirmação.
   const pending = schedule.filter(x => x.due.getTime() <= now && (snoozes[x.m.id] || 0) <= now)[0];
   const upcoming = schedule.filter(x => x.due.getTime() > now);
   const next = upcoming[0];
@@ -45,12 +42,7 @@ function App() {
   }, [pending?.m.id, pending?.due?.getTime(), alarm, done]);
 
   function startSound() {
-    try {
-      const C = window.AudioContext || (window as any).webkitAudioContext; if (!C) return;
-      stopSound(); const c = new C(); audio.current = c;
-      const beep = () => { if (c.state === 'suspended') c.resume().catch(() => {}); const o = c.createOscillator(), g = c.createGain(); o.type = 'square'; o.frequency.value = 880; g.gain.value = .16; o.connect(g); g.connect(c.destination); o.start(); window.setTimeout(() => { try { o.stop(); } catch {} }, 500); };
-      beep(); timer.current = window.setInterval(beep, 1100);
-    } catch {}
+    try { const C = window.AudioContext || (window as any).webkitAudioContext; if (!C) return; stopSound(); const c = new C(); audio.current = c; const beep = () => { if (c.state === 'suspended') c.resume().catch(() => {}); const o = c.createOscillator(), g = c.createGain(); o.type = 'square'; o.frequency.value = 880; g.gain.value = .16; o.connect(g); g.connect(c.destination); o.start(); window.setTimeout(() => { try { o.stop(); } catch {} }, 500); }; beep(); timer.current = window.setInterval(beep, 1100); } catch {}
   }
   function stopSound() { if (timer.current) clearInterval(timer.current); timer.current = null; audio.current?.close(); audio.current = null; }
   function save(x: DB) { setDb({ ...x }); try { const bc = new BroadcastChannel(CHANNEL); bc.postMessage(x); bc.close(); } catch {} }
@@ -58,16 +50,12 @@ function App() {
   function confirmMed(m: Med) {
     stopSound(); const item = schedule.find(x => x.m.id === m.id); if (!item) return;
     const e: DB['events'][number] = { id: crypto.randomUUID(), medId: m.id, scheduled: item.due.toISOString(), confirmed: new Date(now).toISOString(), by: role === 'patient' ? 'Paciente' : 'Acompanhante' };
-    save({ ...db, events: [...db.events, e] }); setAlarm(null); setSnoozes(s => ({ ...s, [m.id]: 0 }));
-    // O próximo horário nasce da confirmação real, inclusive quando a dose foi tomada atrasada.
-    setDone({ med: m, event: e, next: new Date(now + m.interval * 60000) });
+    save({ ...db, events: [...db.events, e] }); setAlarm(null); setSnoozes(s => ({ ...s, [m.id]: 0 })); setDone({ med: m, event: e, next: new Date(now + m.interval * 60000) });
   }
   function snooze(m: Med, min: number) { stopSound(); setSnoozes(s => ({ ...s, [m.id]: Date.now() + min * 60000 })); setAlarm(null); }
   function setFirstTime(iso: string) { if (!startMed) return; save({ ...db, meds: db.meds.map(z => z.id === startMed.id ? { ...z, start: iso, active: true } : z) }); setStartMed(null); }
   function pause(m: Med) { save({ ...db, meds: db.meds.map(z => z.id === m.id ? { ...z, active: !z.active } : z) }); setDetail(null); }
-  function addMed(data: { name: string; interval: number; form: string; dose: string; note: string; photo: string | null }) {
-    save({ ...db, meds: [...db.meds, { id: crypto.randomUUID(), name: data.name, interval: data.interval, start: null, active: true, form: data.form, dose: data.dose, note: data.note, photo: data.photo }] }); setShowAdd(false);
-  }
+  function addMed(data: { name: string; interval: number; form: string; dose: string; note: string; photo: string | null }) { save({ ...db, meds: [...db.meds, { id: crypto.randomUUID(), name: data.name, interval: data.interval, start: null, active: true, form: data.form, dose: data.dose, note: data.note, photo: data.photo }] }); setShowAdd(false); }
   function updateMed(m: Med) { save({ ...db, meds: db.meds.map(x => x.id === m.id ? m : x) }); setEdit(null); setDetail(null); }
   function removeMed(m: Med) { if (!confirm(`Excluir ${m.name}?`)) return; save({ ...db, meds: db.meds.filter(x => x.id !== m.id), events: db.events.filter(e => e.medId !== m.id) }); setDetail(null); setEdit(null); }
   function askNotifications() { if (!('Notification' in window)) return alert('Este navegador não oferece notificações.'); Notification.requestPermission().then(p => save({ ...db, settings: { ...db.settings, notifications: p === 'granted' } })).catch(() => {}); }
@@ -88,7 +76,7 @@ function App() {
     <nav className="fixed bottom-0 left-0 right-0 z-30 border-t border-slate-100 bg-white/95 px-2 pb-[max(8px,env(safe-area-inset-bottom))] pt-2 backdrop-blur"><div className="mx-auto grid max-w-xl grid-cols-4 gap-1"><NavButton active={tab === 'home'} icon={<Home size={22}/>} label="Início" onClick={() => setTab('home')}/><NavButton active={tab === 'meds'} icon={<Pill size={22}/>} label="Medicamentos" onClick={() => setTab('meds')}/><NavButton active={tab === 'history'} icon={<History size={22}/>} label="Histórico" onClick={() => setTab('history')}/><NavButton active={tab === 'settings'} icon={<Settings size={22}/>} label="Configurações" onClick={() => setTab('settings')}/></div></nav>
     {activePending && <AlarmOverlay med={activePending.med} due={activePending.due} now={now} label={role === 'patient' ? 'USADO' : 'ADMINISTRADO'} onConfirm={() => confirmMed(activePending.med)} onSnooze={m => snooze(activePending.med, m)}/>} 
     {done && <ConfirmationOverlay done={done} onClose={() => setDone(null)} onNext={() => { setDone(null); setTab('home'); }}/>} 
-    {detail && <DetailSheet med={detail} events={db.events} now={now} onClose={() => setDetail(null)} onConfirm={() => { if (pending?.m.id === detail.id) confirmMed(detail); }} onPause={() => pause(detail)} onEdit={() => setEdit(detail)} onDelete={() => removeMed(detail)}/>} 
+    {detail && <DetailSheet med={detail} events={db.events} now={now} onClose={() => setDetail(null)} onConfirm={() => { const due = dueFor(detail, db.events); if (due && due.getTime() <= now) confirmMed(detail); }} onPause={() => pause(detail)} onEdit={() => setEdit(detail)} onDelete={() => removeMed(detail)}/>} 
     {edit && <EditModal med={edit} onClose={() => setEdit(null)} onSave={updateMed}/>} 
     {startMed && <StartTimeModal med={startMed} now={now} onClose={() => setStartMed(null)} onSave={setFirstTime}/>} 
     {showAdd && <AddModal onClose={() => setShowAdd(false)} onSave={addMed}/>} 
