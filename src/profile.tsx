@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { ChevronLeft, FileText, LogOut, Settings, UserRound, UsersRound, X, Target } from 'lucide-react';
+import { Check, ChevronLeft, FileText, LogOut, Mail, Pencil, Save, Settings, Target, UserRound, UsersRound, X } from 'lucide-react';
 import type { DB, Role } from './model';
 import { dueFor, parseDate } from './model';
 
@@ -13,9 +13,6 @@ export function adherence(db:DB,period:Period){
   const confirmed=events.length;
   const late=events.filter(e=>{const s=parseDate(e.scheduled),c=parseDate(e.confirmed);return !!s&&!!c&&c.getTime()-s.getTime()>5*60000}).length;
   const onTime=confirmed-late;
-  // Não contamos o primeiro horário definido como uma dose tomada. Ele é apenas
-  // a âncora para gerar a próxima dose. Também não criamos uma sequência fixa
-  // que causaria falsos atrasos quando uma dose foi confirmada tarde.
   const now=end;
   const overdueUnconfirmed=db.meds.filter(m=>m.active&&(()=>{const due=dueFor(m,db.events);return !!due&&due.getTime()<=now&&due.getTime()>=start.getTime()})()).length;
   const expected=confirmed+overdueUnconfirmed;
@@ -36,10 +33,64 @@ function medicationStats(db:DB,medId:string,period:Period){
   return{confirmed,late,onTime,missed,expected:confirmed+missed,precision:confirmed?Math.round(onTime/confirmed*100):0};
 }
 
-export function ProfilePanel({db,role,name,onClose,onSettings,onReport,onSignOut}:{db:DB;role:Role;name:string;onClose:()=>void;onSettings:()=>void;onReport:(p:Period)=>void;onSignOut:()=>void}){const displayName=name||db.patientName||'Usuário';const summary=useMemo(()=>adherence(db,'monthly'),[db]);const isPatient=role==='patient';return <div className="fixed inset-0 z-[70] bg-slate-900/30 backdrop-blur-[2px]" onClick={onClose}><aside onClick={e=>e.stopPropagation()} className="absolute right-0 top-0 flex h-full w-[min(92vw,430px)] flex-col bg-[#f7f9fc] shadow-2xl animate-[slideIn_.25s_ease-out]"><style>{'@keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}'}</style><div className="flex items-center justify-between border-b border-slate-100 bg-white px-5 py-4"><button onClick={onClose} className="grid h-10 w-10 place-items-center rounded-xl bg-slate-100 text-slate-600" aria-label="Voltar"><ChevronLeft size={21}/></button><b className="text-lg">{isPatient?'Meu perfil':'Acompanhamento'}</b><button onClick={onClose} className="grid h-10 w-10 place-items-center rounded-xl bg-slate-100 text-slate-500" aria-label="Fechar"><X size={19}/></button></div><div className="flex-1 overflow-y-auto px-5 py-6"><div className="flex items-center gap-4 rounded-3xl bg-white p-5 shadow-sm"><div className="grid h-16 w-16 place-items-center rounded-2xl bg-blue-50 text-blue-600"><UserRound size={31}/></div><div className="min-w-0"><div className="truncate text-xl font-bold">{displayName}</div><div className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">{isPatient?<><UserRound size={12}/> Paciente</>:<><UsersRound size={12}/> Acompanhante</>}</div></div></div>
+export function ProfilePanel({db,role,name,email,avatarUrl,onClose,onSettings,onReport,onSignOut,onSaveProfile}:{db:DB;role:Role;name:string;email:string;avatarUrl?:string|null;onClose:()=>void;onSettings:()=>void;onReport:(p:Period)=>void;onSignOut:()=>void;onSaveProfile:(name:string)=>Promise<void>}){
+  const displayName=name||db.patientName||'Usuário';
+  const summary=useMemo(()=>adherence(db,'monthly'),[db]);
+  const isPatient=role==='patient';
+  const [editing,setEditing]=useState(false);
+  const [draftName,setDraftName]=useState(displayName);
+  const [saving,setSaving]=useState(false);
+  const [error,setError]=useState('');
 
-<div className="mt-4 rounded-3xl bg-white p-5 shadow-sm"><div className="flex items-center gap-2"><div className="grid h-10 w-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Target size={20}/></div><div><div className="font-bold">Precisão no horário</div><div className="text-xs text-slate-500">Este mês</div></div></div><div className="mt-4 flex items-end justify-between gap-3"><div><span className="text-4xl font-black text-blue-600">{summary.precision}%</span><div className="mt-1 text-xs text-slate-500">das doses confirmadas no horário</div></div><div className="text-right text-xs text-slate-500"><div><b className="text-emerald-600">{summary.onTime}</b> no horário</div><div><b className="text-amber-600">{summary.late}</b> atrasadas</div><div><b className="text-red-600">{summary.missed}</b> pendentes</div></div></div><div className="mt-4 h-3 w-full overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={summary.precision} aria-label={`Precisão no horário: ${summary.precision}%`}><div className="h-full rounded-full bg-blue-600 transition-all duration-500" style={{width:`${summary.precision}%`}}/></div><div className="mt-2 text-[11px] text-slate-400">Até 5 min após o horário previsto conta como no horário.</div></div>
+  async function save(){
+    const clean=draftName.trim();
+    if(clean.length<2){setError('Informe um nome válido.');return}
+    setSaving(true);setError('');
+    try{await onSaveProfile(clean);setEditing(false)}catch(e:any){setError(e?.message||'Não foi possível salvar seus dados.')}finally{setSaving(false)}
+  }
 
-<div className="mt-5"><button onClick={()=>onReport('monthly')} className="flex w-full items-center gap-4 rounded-3xl bg-white p-5 text-left shadow-sm transition active:scale-[.99]"><div className="grid h-12 w-12 place-items-center rounded-2xl bg-blue-50 text-blue-600"><FileText size={23}/></div><div className="flex-1"><div className="text-base font-bold">Relatórios</div><div className="mt-1 text-sm text-slate-500">Consulte sua frequência diária, semanal ou mensal</div></div><ChevronLeft size={20} className="rotate-180 text-slate-300"/></button></div><div className="mt-4 space-y-2"><button onClick={onSettings} className="flex w-full items-center gap-3 rounded-2xl bg-white p-4 font-bold shadow-sm"><Settings size={20} className="text-slate-600"/> Configurações do app</button><button onClick={onSignOut} className="flex w-full items-center gap-3 rounded-2xl bg-white p-4 font-bold text-red-600 shadow-sm"><LogOut size={20}/> Sair</button></div></div></aside></div>}
+  return <div className="fixed inset-0 z-[70] bg-slate-900/30 backdrop-blur-[2px]" onClick={onClose}>
+    <aside onClick={e=>e.stopPropagation()} className="absolute right-0 top-0 flex h-full w-[min(92vw,430px)] flex-col bg-[#f7f9fc] shadow-2xl animate-[slideIn_.25s_ease-out]">
+      <style>{'@keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}'}</style>
+      <div className="flex items-center justify-between border-b border-slate-100 bg-white px-5 py-4">
+        <button onClick={onClose} className="grid h-10 w-10 place-items-center rounded-xl bg-slate-100 text-slate-600" aria-label="Voltar"><ChevronLeft size={21}/></button>
+        <b className="text-lg">{isPatient?'Meu perfil':'Acompanhamento'}</b>
+        <button onClick={onClose} className="grid h-10 w-10 place-items-center rounded-xl bg-slate-100 text-slate-500" aria-label="Fechar"><X size={19}/></button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-5 py-6">
+        <section className="rounded-3xl bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-4">
+            <div className="grid h-16 w-16 shrink-0 place-items-center overflow-hidden rounded-2xl bg-blue-50 text-blue-600">
+              {avatarUrl?<img src={avatarUrl} alt="Foto do perfil" className="h-full w-full object-cover"/>:<UserRound size={31}/>} 
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-xl font-bold">{displayName}</div>
+              <div className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700">{isPatient?<><UserRound size={12}/> Paciente</>:<><UsersRound size={12}/> Acompanhante</>}</div>
+            </div>
+            <button onClick={()=>{setDraftName(displayName);setError('');setEditing(v=>!v)}} className="grid h-10 w-10 place-items-center rounded-xl bg-blue-50 text-blue-600" aria-label="Editar meus dados"><Pencil size={18}/></button>
+          </div>
+
+          {editing&&<div className="mt-5 border-t border-slate-100 pt-5">
+            <label className="block text-sm font-bold text-slate-700">Nome de exibição<input value={draftName} onChange={e=>setDraftName(e.target.value)} className="mt-1 w-full rounded-2xl border border-slate-200 bg-white p-3.5 outline-none focus:border-blue-500" autoFocus/></label>
+            <div className="mt-3 rounded-2xl bg-slate-50 p-3.5"><div className="flex items-center gap-2 text-xs font-bold text-slate-400"><Mail size={14}/> E-MAIL</div><div className="mt-1 truncate text-sm font-semibold text-slate-700">{email||'Não informado'}</div><div className="mt-1 text-[11px] text-slate-400">O e-mail da conta não é alterado aqui.</div></div>
+            {error&&<div className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div>}
+            <div className="mt-3 grid grid-cols-2 gap-2"><button onClick={()=>setEditing(false)} className="rounded-2xl border border-slate-200 py-3 font-bold text-slate-600">Cancelar</button><button disabled={saving} onClick={save} className="flex items-center justify-center gap-2 rounded-2xl bg-blue-600 py-3 font-bold text-white disabled:opacity-60"><Save size={17}/>{saving?'Salvando…':'Salvar dados'}</button></div>
+          </div>}
+        </section>
+
+        <div className="mt-4 rounded-3xl bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-2"><div className="grid h-10 w-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Target size={20}/></div><div><div className="font-bold">Precisão no horário</div><div className="text-xs text-slate-500">Este mês</div></div></div>
+          <div className="mt-4 flex items-end justify-between gap-3"><div><span className="text-4xl font-black text-blue-600">{summary.precision}%</span><div className="mt-1 text-xs text-slate-500">das doses confirmadas no horário</div></div><div className="text-right text-xs text-slate-500"><div><b className="text-emerald-600">{summary.onTime}</b> no horário</div><div><b className="text-amber-600">{summary.late}</b> atrasadas</div><div><b className="text-red-600">{summary.missed}</b> pendentes</div></div></div>
+          <div className="mt-4 h-3 w-full overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={summary.precision} aria-label={`Precisão no horário: ${summary.precision}%`}><div className="h-full rounded-full bg-blue-600 transition-all duration-500" style={{width:`${summary.precision}%`}}/></div>
+          <div className="mt-2 text-[11px] text-slate-400">Até 5 min após o horário previsto conta como no horário.</div>
+        </div>
+
+        <div className="mt-5"><button onClick={()=>onReport('monthly')} className="flex w-full items-center gap-4 rounded-3xl bg-white p-5 text-left shadow-sm transition active:scale-[.99]"><div className="grid h-12 w-12 place-items-center rounded-2xl bg-blue-50 text-blue-600"><FileText size={23}/></div><div className="flex-1"><div className="text-base font-bold">Relatórios</div><div className="mt-1 text-sm text-slate-500">Consulte sua frequência diária, semanal ou mensal</div></div><ChevronLeft size={20} className="rotate-180 text-slate-300"/></button></div>
+        <div className="mt-4 space-y-2"><button onClick={onSettings} className="flex w-full items-center gap-3 rounded-2xl bg-white p-4 font-bold shadow-sm"><Settings size={20} className="text-slate-600"/> Configurações do app</button><button onClick={onSignOut} className="flex w-full items-center gap-3 rounded-2xl bg-white p-4 font-bold text-red-600 shadow-sm"><LogOut size={20}/> Sair</button></div>
+      </div>
+    </aside>
+  </div>
+}
 
 export function ReportView({db,period,onBack}:{db:DB;period:Period;onBack:()=>void}){const[currentPeriod,setCurrentPeriod]=useState<Period>(period);const s=adherence(db,currentPeriod);const title=currentPeriod==='daily'?'Relatório diário':currentPeriod==='weekly'?'Relatório semanal':'Relatório mensal';return <section><div className="mb-5 flex items-center gap-3"><button onClick={onBack} className="grid h-10 w-10 place-items-center rounded-xl bg-white shadow-sm" aria-label="Voltar"><ChevronLeft size={20}/></button><div><div className="text-[10px] font-bold tracking-[.22em] text-slate-400">RELATÓRIO</div><h2 className="text-2xl font-bold">{title}</h2></div></div><div className="mb-5 grid grid-cols-3 gap-2 rounded-2xl bg-slate-100 p-1">{(['daily','weekly','monthly'] as Period[]).map(p=><button key={p} onClick={()=>setCurrentPeriod(p)} className={`rounded-xl px-2 py-3 text-sm font-bold transition ${currentPeriod===p?'bg-white text-blue-700 shadow-sm':'text-slate-500'}`}>{p==='daily'?'Diário':p==='weekly'?'Semanal':'Mensal'}</button>)}</div><div className="rounded-3xl bg-white p-6 shadow-sm"><div className="text-sm font-semibold text-slate-500">Frequência de confirmação</div><div className="mt-1 text-6xl font-black text-blue-600">{s.adherencePct}%</div><div className="mt-2 text-sm text-slate-500">{s.confirmed} de {s.expected||s.confirmed} doses previstas confirmadas</div><div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600 transition-all" style={{width:`${s.adherencePct}%`}}/></div><div className="mt-2 text-xs text-slate-400">Adesão calculada a partir dos horários previstos e das confirmações reais.</div><div className="mt-6 grid grid-cols-2 gap-3"><div className="rounded-2xl bg-emerald-50 p-4"><div className="text-xs font-bold text-emerald-700">NO HORÁRIO</div><div className="mt-1 text-2xl font-black text-emerald-700">{s.precision}%</div></div><div className="rounded-2xl bg-amber-50 p-4"><div className="text-xs font-bold text-amber-700">ATRASADAS</div><div className="mt-1 text-2xl font-black text-amber-700">{s.late}</div></div><div className="rounded-2xl bg-red-50 p-4"><div className="text-xs font-bold text-red-700">NÃO CONFIRMADAS</div><div className="mt-1 text-2xl font-black text-red-700">{s.missed}</div></div><div className="rounded-2xl bg-blue-50 p-4"><div className="text-xs font-bold text-blue-700">CONFIRMADAS</div><div className="mt-1 text-2xl font-black text-blue-700">{s.confirmed}</div></div></div></div><div className="mt-4 rounded-3xl bg-white p-5 shadow-sm"><div className="mb-4 font-bold">Por medicamento</div>{db.meds.length?<div className="space-y-4">{db.meds.map(m=>{const st=medicationStats(db,m.id,currentPeriod);const pct=st.confirmed?st.precision:0;return <div key={m.id}><div className="mb-1 flex justify-between text-sm"><b>{m.name}</b><span className="text-slate-500">{st.confirmed} confirmações · {st.late} atrasada(s)</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{width:`${pct}%`}}/></div></div>})}</div>:<div className="text-sm text-slate-500">Nenhum medicamento cadastrado.</div>}</div><button onClick={()=>window.print()} className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 py-4 font-bold text-white"><FileText size={19}/> Imprimir / salvar PDF</button></section>}
