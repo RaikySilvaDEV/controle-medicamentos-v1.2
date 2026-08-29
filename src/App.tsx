@@ -9,6 +9,12 @@ import { ProfilePanel, ReportView } from './profile';
 import { supabase } from './supabase';
 import { deleteMedication, getExistingProfile, insertDose, loadCloud, subscribeCloud, updateOwnProfile, upsertMedication } from './cloud';
 
+function clearAuthHash() {
+  if (window.location.hash && /(?:access_token|refresh_token|code|error)=/i.test(window.location.hash)) {
+    window.history.replaceState(null, document.title, `${window.location.pathname}${window.location.search}`);
+  }
+}
+
 function App() {
   const [db, setDb] = useState<DB>(load); const [authenticated,setAuthenticated]=useState(false); const [authChecked,setAuthChecked]=useState(false);
   const [onboarded,setOnboarded]=useState(()=>!!localStorage.getItem('cm-v12-role')&&!!localStorage.getItem('cm-v12-patient-id'));
@@ -31,7 +37,7 @@ function App() {
     }
   }
 
-  useEffect(()=>{let mounted=true;supabase.auth.getSession().then(async({data})=>{if(!mounted)return;setAuthenticated(!!data.session);if(!data.session){localStorage.removeItem('cm-v12-authenticated');localStorage.removeItem('cm-v12-role');localStorage.removeItem('cm-v12-patient-id');setOnboarded(false);setPatientId('');setAccount({name:'',email:'',avatarUrl:null});}else{localStorage.setItem('cm-v12-authenticated','1');try{await hydrateSession()}catch(e){console.error(e)}}setAuthChecked(true)});const{data:listener}=supabase.auth.onAuthStateChange(async(_event,session)=>{setAuthenticated(!!session);if(session){localStorage.setItem('cm-v12-authenticated','1');try{await hydrateSession()}catch(e){console.error(e)}}else{localStorage.removeItem('cm-v12-authenticated');localStorage.removeItem('cm-v12-role');localStorage.removeItem('cm-v12-patient-id');setOnboarded(false);setPatientId('');setAccount({name:'',email:'',avatarUrl:null});stopSound()}});return()=>{mounted=false;listener.subscription.unsubscribe()}},[]);
+  useEffect(()=>{let mounted=true;supabase.auth.getSession().then(async({data})=>{if(!mounted)return;setAuthenticated(!!data.session);clearAuthHash();if(!data.session){localStorage.removeItem('cm-v12-authenticated');localStorage.removeItem('cm-v12-role');localStorage.removeItem('cm-v12-patient-id');setOnboarded(false);setPatientId('');setAccount({name:'',email:'',avatarUrl:null});}else{localStorage.setItem('cm-v12-authenticated','1');try{await hydrateSession()}catch(e){console.error(e)}}setAuthChecked(true)});const{data:listener}=supabase.auth.onAuthStateChange(async(_event,session)=>{setAuthenticated(!!session);clearAuthHash();if(session){localStorage.setItem('cm-v12-authenticated','1');try{await hydrateSession()}catch(e){console.error(e)}}else{localStorage.removeItem('cm-v12-authenticated');localStorage.removeItem('cm-v12-role');localStorage.removeItem('cm-v12-patient-id');setOnboarded(false);setPatientId('');setAccount({name:'',email:'',avatarUrl:null});stopSound()}});return()=>{mounted=false;listener.subscription.unsubscribe()}},[]);
   useEffect(()=>{const id=window.setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(id)},[]);
   async function refresh(id=patientId){if(!id||refreshLock.current)return;refreshLock.current=true;try{setDb(await loadCloud(id))}catch(e){console.error(e)}finally{refreshLock.current=false}}
   useEffect(()=>{if(authenticated&&onboarded&&patientId)refresh()},[authenticated,onboarded,patientId]); useEffect(()=>{if(!authenticated||!onboarded||!patientId)return subscribeCloud(patientId,()=>refresh())},[authenticated,onboarded,patientId]);
