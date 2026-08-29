@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Bell, CalendarClock, Check, ChevronRight, Clock3, Copy, History, Pause, Pill, Play, Plus, Search, ShieldAlert, UsersRound, X } from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+import { Bell, CalendarClock, Check, ChevronRight, Clock3, Copy, History, Pause, Pill, Play, Plus, Search, ShieldAlert, Trash2, UsersRound, X } from 'lucide-react';
 import type { DB, Med } from './model';
 import { dateFmt, dueFor, duration, fmt } from './model';
 import { adherence } from './profile';
@@ -66,9 +66,12 @@ function CompanionCard({ code }: { code: string }) {
   return <section className="mt-6 rounded-[26px] border border-blue-100 bg-gradient-to-br from-blue-50 to-white p-5"><div className="flex items-center gap-3"><div className="grid h-12 w-12 place-items-center rounded-2xl bg-blue-100 text-blue-600"><UsersRound size={24}/></div><div className="min-w-0"><div className="font-bold">Acompanhamento familiar</div><div className="text-sm text-slate-500">Compartilhe este código com seus familiares.</div></div></div><div className="mt-4 flex items-center justify-between rounded-2xl bg-white p-3 shadow-sm"><strong className="text-xl tracking-[.14em] text-blue-600">{code}</strong><button onClick={() => navigator.clipboard?.writeText(code)} className="rounded-xl bg-blue-50 p-3 text-blue-600" aria-label="Copiar código"><Copy size={19}/></button></div></section>;
 }
 
-export function MedsView({ db, onAdd, onDetail, onPause, onStart }: { db: DB; onAdd: () => void; onDetail: (m: Med) => void; onPause: (m: Med) => void; onStart: (m: Med) => void }) {
+export function MedsView({ db, onAdd, onDetail, onPause, onStart, onDelete }: { db: DB; onAdd: () => void; onDetail: (m: Med) => void; onPause: (m: Med) => void; onStart: (m: Med) => void; onDelete: (m: Med) => void }) {
   const [query,setQuery]=useState('');
   const [filter,setFilter]=useState<'all'|'active'|'paused'>('all');
+  const [longPressMed,setLongPressMed]=useState<Med|null>(null);
+  const holdTimer=useRef<number|null>(null);
+  const suppressClick=useRef(false);
   const filtered=useMemo(()=>db.meds.filter(m=>{
     const matchesQuery=!query.trim()||m.name.toLowerCase().includes(query.trim().toLowerCase());
     const matchesFilter=filter==='all'||(filter==='active'?m.active:!m.active);
@@ -78,6 +81,11 @@ export function MedsView({ db, onAdd, onDetail, onPause, onStart }: { db: DB; on
   const pausedCount=db.meds.length-activeCount;
   const intervalLabel=(m:Med)=>m.interval>=1440?`A cada ${m.interval/1440} ${m.interval/1440===1?'dia':'dias'}`:m.interval>=60?`A cada ${m.interval/60} ${m.interval/60===1?'hora':'horas'}`:`A cada ${m.interval} min`;
   const nextLabel=(m:Med)=>{const d=dueFor(m,db.events);return d?fmt(d):m.start?'Sem próximo horário':'Defina o 1º horário'};
+  const clearHold=()=>{if(holdTimer.current!==null){window.clearTimeout(holdTimer.current);holdTimer.current=null}};
+  const startHold=(m:Med)=>{clearHold();holdTimer.current=window.setTimeout(()=>{suppressClick.current=true;setLongPressMed(m)},650)};
+  const finishHold=()=>clearHold();
+  const closeLongPress=()=>{setLongPressMed(null);suppressClick.current=false};
+  const requestDelete=()=>{if(!longPressMed)return;const m=longPressMed;closeLongPress();onDelete(m)};
   return <>
     <div className="mb-5 flex items-start justify-between gap-4">
       <div className="min-w-0"><div className="text-[10px] font-bold tracking-[.22em] text-slate-400">SEUS MEDICAMENTOS</div><h2 className="text-2xl font-bold">Medicamentos</h2><p className="mt-1 text-sm text-slate-500">Tudo sobre seus tratamentos em um só lugar.</p></div>
@@ -91,8 +99,8 @@ export function MedsView({ db, onAdd, onDetail, onPause, onStart }: { db: DB; on
     </>}
     {!db.meds.length&&<div className="rounded-[28px] border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm"><div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-blue-50 text-blue-600"><Pill size={30}/></div><b className="mt-4 block text-lg">Nenhum medicamento cadastrado</b><p className="mt-1 text-sm text-slate-500">Adicione seu primeiro medicamento para começar a calcular os próximos horários.</p><button onClick={onAdd} className="mt-5 rounded-2xl bg-blue-600 px-5 py-3 font-black text-white">＋ Adicionar medicamento</button></div>}
     {db.meds.length>0&&<div className="space-y-3">
-      {filtered.map(m=><article key={m.id} className="overflow-hidden rounded-[24px] border border-slate-100 bg-white shadow-[0_5px_20px_rgba(20,35,60,.045)] transition hover:shadow-[0_8px_28px_rgba(20,35,60,.07)]">
-        <button onClick={()=>onDetail(m)} className="block w-full p-5 text-left" aria-label={`Ver detalhes de ${m.name}`}>
+      {filtered.map(m=><article key={m.id} onPointerDown={()=>startHold(m)} onPointerUp={finishHold} onPointerCancel={finishHold} onPointerLeave={finishHold} className="relative overflow-hidden rounded-[24px] border border-slate-100 bg-white shadow-[0_5px_20px_rgba(20,35,60,.045)] transition hover:shadow-[0_8px_28px_rgba(20,35,60,.07)]">
+        <button onClick={e=>{if(suppressClick.current){e.preventDefault();suppressClick.current=false;return}onDetail(m)}} className="block w-full p-5 text-left" aria-label={`Ver detalhes de ${m.name}. Pressione e segure para mais ações`}>
           <div className="flex items-start gap-4">
             <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-2xl bg-blue-50 text-blue-600">{m.photo?<img src={m.photo} alt="" className="h-full w-full object-cover"/>:m.form==='Colírio'?<span className="text-2xl">💧</span>:<Pill size={28}/>}</div>
             <div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className="truncate text-[17px] font-bold text-[#182033]">{m.name}</h3><p className="mt-1 text-sm text-slate-500">{m.dose||'1 dose'} <span className="text-slate-300">•</span> {intervalLabel(m)}</p></div><ChevronRight size={20} className="mt-0.5 shrink-0 text-slate-300"/></div><div className="mt-3 flex flex-wrap items-center gap-2"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${m.active?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-700'}`}>{m.active?'Em uso':'Pausado'}</span><span className="rounded-full bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-500">{m.form||'Medicamento'}</span></div></div>
@@ -100,8 +108,9 @@ export function MedsView({ db, onAdd, onDetail, onPause, onStart }: { db: DB; on
           <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3"><div><span className="block text-[11px] font-bold uppercase tracking-wide text-slate-400">Próximo horário</span><strong className={`mt-0.5 block text-sm ${!m.start?'text-blue-600':'text-slate-700'}`}>{nextLabel(m)}</strong></div><span className="text-xs font-bold text-blue-600">Ver detalhes</span></div>
         </button>
         {!m.start&&<div className="border-t border-slate-100 bg-slate-50/70 px-5 py-3"><button onClick={()=>onStart(m)} className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-bold text-white">Definir primeiro horário</button></div>}
+        {longPressMed?.id===m.id&&<div className="absolute inset-x-0 bottom-0 z-10 flex items-center justify-between gap-3 border-t border-red-100 bg-white/98 px-4 py-3 shadow-[0_-10px_30px_rgba(15,23,42,.10)]"><div className="min-w-0"><div className="text-xs font-bold text-slate-400">AÇÃO RÁPIDA</div><div className="truncate text-sm font-bold text-slate-700">{m.name}</div></div><div className="flex items-center gap-2"><button onClick={closeLongPress} className="rounded-xl bg-slate-100 px-3 py-2 text-sm font-bold text-slate-600">Cancelar</button><button onClick={requestDelete} className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2 text-sm font-black text-white"><Trash2 size={16}/> Excluir</button></div></div>}
       </article>)}
-      {!filtered.length&&<div className="rounded-[24px] border border-dashed border-slate-300 bg-white p-8 text-center"><Search size={28} className="mx-auto text-slate-400"/><b className="mt-3 block">Nenhum medicamento encontrado</b><p className="mt-1 text-sm text-slate-500">Tente outro nome ou altere o filtro.</p></div>}
+      {!filtered.length&&<div className="rounded-[24px] border border-dashed border-slate-300 bg-white p-8 text-center"><Search size={28} className="mx-auto text-slate-400"/><b className="mt-3 block">Nenhum medicamento encontrado</b><p className="mt-1 block text-sm text-slate-500">Tente outro nome ou altere o filtro.</p></div>}
     </div>}
   </>;
 }
