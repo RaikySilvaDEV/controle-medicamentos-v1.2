@@ -1,8 +1,10 @@
 import { Bell, CalendarClock, Check, ChevronRight, Clock3, Copy, History, Pause, Pill, Play, Plus, ShieldAlert, UsersRound } from 'lucide-react';
 import type { DB, Med } from './model';
 import { dateFmt, duration, fmt } from './model';
+import { adherence } from './profile';
 
 export function HomeView({ db, activePending, next, upcoming, now, onDetail }: { db: DB; activePending: { med: Med; due: Date } | null; next: { m: Med; due: Date } | undefined; upcoming: { m: Med; due: Date }[]; now: number; onDetail: (m: Med) => void }) {
+  const summary=adherence(db,'monthly');
   if (activePending) return <>
     <section className="relative mb-7 overflow-hidden rounded-[28px] bg-gradient-to-br from-red-600 to-red-500 p-7 text-white shadow-[0_18px_45px_rgba(220,38,38,.22)]">
       <div className="absolute -bottom-20 -right-12 h-52 w-52 rounded-full border-[30px] border-white/10"/>
@@ -17,7 +19,7 @@ export function HomeView({ db, activePending, next, upcoming, now, onDetail }: {
       </div>
     </section>
     <ScheduleList upcoming={upcoming} now={now} onDetail={onDetail} title="Outros medicamentos" />
-    <CompanionCard code={db.shareCode}/>
+    <AdherenceCard summary={summary}/><CompanionCard code={db.shareCode}/>
   </>;
 
   return <>
@@ -31,8 +33,17 @@ export function HomeView({ db, activePending, next, upcoming, now, onDetail }: {
       </div>
     </section>
     <ScheduleList upcoming={upcoming} now={now} onDetail={onDetail} title="Próximos horários" empty={db.meds.some(m => !m.start)} />
-    <CompanionCard code={db.shareCode}/>
+    <AdherenceCard summary={summary}/><CompanionCard code={db.shareCode}/>
   </>;
+}
+
+function AdherenceCard({summary}:{summary:ReturnType<typeof adherence>}) {
+  return <section className="mt-6 rounded-[26px] border border-slate-100 bg-white p-5 shadow-[0_5px_20px_rgba(20,35,60,.045)]">
+    <div className="flex items-center justify-between gap-3"><div><div className="text-[10px] font-extrabold tracking-[.2em] text-slate-400">PRECISÃO DO TRATAMENTO</div><div className="mt-1 text-lg font-bold">Uso no horário certo</div></div><strong className="text-2xl font-black text-blue-600">{summary.precision}%</strong></div>
+    <div className="mt-4 h-3 overflow-hidden rounded-full bg-slate-100" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={summary.precision}><div className="h-full rounded-full bg-blue-600 transition-all duration-500" style={{width:`${summary.precision}%`}}/></div>
+    <div className="mt-2 flex items-center justify-between text-xs text-slate-500"><span>{summary.onTime} no horário</span><span>{summary.late} atrasadas</span><span>{summary.missed} pendentes</span></div>
+    <div className="mt-3 text-[11px] text-slate-400">Calculado comparando cada horário previsto com a confirmação real. Até 5 min de diferença conta como pontual.</div>
+  </section>
 }
 
 function ScheduleList({ upcoming, now, onDetail, title, empty }: { upcoming: { m: Med; due: Date }[]; now: number; onDetail: (m: Med) => void; title: string; empty?: boolean }) {
@@ -40,9 +51,7 @@ function ScheduleList({ upcoming, now, onDetail, title, empty }: { upcoming: { m
     <div className="mb-4 flex items-center gap-2 text-[22px] font-bold"><CalendarClock size={23} className="text-slate-500"/> {title}</div>
     <div className="space-y-3">
       {upcoming.slice(0, 8).map(x => <button key={x.m.id} onClick={() => onDetail(x.m)} className="group flex w-full items-center gap-4 rounded-[24px] border border-slate-100 border-l-4 border-l-blue-600 bg-white p-4 text-left shadow-[0_5px_20px_rgba(20,35,60,.045)] transition active:scale-[.99]" aria-label={`Ver detalhes de ${x.m.name}`}>
-        <div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-2xl bg-blue-50 text-blue-600">
-          {x.m.photo ? <img src={x.m.photo} alt="" className="h-full w-full object-cover"/> : <Clock3 size={23}/>} 
-        </div>
+        <div className="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-2xl bg-blue-50 text-blue-600">{x.m.photo ? <img src={x.m.photo} alt="" className="h-full w-full object-cover"/> : <Clock3 size={23}/>}</div>
         <div className="min-w-0 flex-1"><div className="truncate text-[16px] font-bold">{x.m.name}</div><div className="mt-1 text-sm text-slate-500">{fmt(x.due)} <span className="text-slate-300">•</span> Em {duration(x.due.getTime() - now)}</div></div>
         <ChevronRight size={22} className="shrink-0 text-slate-300 transition-transform group-active:translate-x-0.5"/>
       </button>)}
