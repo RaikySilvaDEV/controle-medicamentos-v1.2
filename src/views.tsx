@@ -1,6 +1,7 @@
-import { Bell, CalendarClock, Check, ChevronRight, Clock3, Copy, History, Pause, Pill, Play, Plus, ShieldAlert, UsersRound } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Bell, CalendarClock, Check, ChevronRight, Clock3, Copy, History, Pause, Pill, Play, Plus, Search, ShieldAlert, UsersRound, X } from 'lucide-react';
 import type { DB, Med } from './model';
-import { dateFmt, duration, fmt } from './model';
+import { dateFmt, dueFor, duration, fmt } from './model';
 import { adherence } from './profile';
 
 export function HomeView({ db, activePending, next, upcoming, now, onDetail }: { db: DB; activePending: { med: Med; due: Date } | null; next: { m: Med; due: Date } | undefined; upcoming: { m: Med; due: Date }[]; now: number; onDetail: (m: Med) => void }) {
@@ -66,26 +67,42 @@ function CompanionCard({ code }: { code: string }) {
 }
 
 export function MedsView({ db, onAdd, onDetail, onPause, onStart }: { db: DB; onAdd: () => void; onDetail: (m: Med) => void; onPause: (m: Med) => void; onStart: (m: Med) => void }) {
+  const [query,setQuery]=useState('');
+  const [filter,setFilter]=useState<'all'|'active'|'paused'>('all');
+  const filtered=useMemo(()=>db.meds.filter(m=>{
+    const matchesQuery=!query.trim()||m.name.toLowerCase().includes(query.trim().toLowerCase());
+    const matchesFilter=filter==='all'||(filter==='active'?m.active:!m.active);
+    return matchesQuery&&matchesFilter;
+  }),[db.meds,query,filter]);
+  const activeCount=db.meds.filter(m=>m.active).length;
+  const pausedCount=db.meds.length-activeCount;
+  const intervalLabel=(m:Med)=>m.interval>=1440?`A cada ${m.interval/1440} ${m.interval/1440===1?'dia':'dias'}`:m.interval>=60?`A cada ${m.interval/60} ${m.interval/60===1?'hora':'horas'}`:`A cada ${m.interval} min`;
+  const nextLabel=(m:Med)=>{const d=dueFor(m,db.events);return d?fmt(d):m.start?'Sem próximo horário':'Defina o 1º horário'};
   return <>
-    <div className="mb-5 flex items-center justify-between"><div><div className="text-[10px] font-bold tracking-[.22em] text-slate-400">SEUS MEDICAMENTOS</div><h2 className="text-2xl font-bold">Medicamentos</h2><p className="mt-1 text-sm text-slate-500">Cadastre, acompanhe e ajuste seus tratamentos.</p></div><button onClick={onAdd} className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-100" aria-label="Adicionar medicamento"><Plus size={24}/></button></div>
-    {!db.meds.length && <div className="rounded-[28px] border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm"><div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-blue-50 text-blue-600"><Pill size={30}/></div><b className="mt-4 block text-lg">Nenhum medicamento cadastrado</b><p className="mt-1 text-sm text-slate-500">Adicione seu primeiro medicamento para começar a calcular os próximos horários.</p><button onClick={onAdd} className="mt-5 rounded-2xl bg-blue-600 px-5 py-3 font-black text-white">＋ Adicionar medicamento</button></div>}
-    <div className="space-y-3">
-      {db.meds.map(m => <article key={m.id} className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-[0_5px_20px_rgba(20,35,60,.045)]">
-        <button onClick={() => onDetail(m)} className="flex w-full items-start gap-4 text-left" aria-label={`Abrir detalhes de ${m.name}`}>
-          <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-2xl bg-blue-50 text-blue-600">{m.photo ? <img src={m.photo} alt="" className="h-full w-full object-cover"/> : m.form === 'Colírio' ? '💧' : '💊'}</div>
-          <div className="min-w-0 flex-1"><div className="flex items-center gap-2"><b className="truncate text-[17px]">{m.name}</b><ChevronRight size={18} className="shrink-0 text-slate-300"/></div><span className="mt-1 block text-sm text-slate-500">{m.dose || '1 dose'} • {m.interval >= 1440 ? `A cada ${m.interval / 1440} dias` : m.interval >= 60 ? `A cada ${m.interval / 60} horas` : `A cada ${m.interval} min`}</span><span className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-xs font-bold ${m.active ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>{m.active ? '● Em uso' : '● Pausado'}</span></div>
-        </button>
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <button onClick={() => onDetail(m)} className="rounded-2xl border border-slate-200 py-3 text-sm font-bold text-slate-700">Ver detalhes</button>
-          {!m.start ? <button onClick={() => onStart(m)} className="rounded-2xl bg-blue-600 py-3 text-sm font-bold text-white">Definir 1º horário</button> : <button onClick={() => onStart(m)} className="rounded-2xl bg-blue-50 py-3 text-sm font-bold text-blue-700">Alterar 1º horário</button>}
-        </div>
-        <div className="mt-2 grid grid-cols-2 gap-2">
-          <button onClick={() => onDetail(m)} className="rounded-2xl border border-blue-100 bg-blue-50 py-2.5 text-xs font-bold text-blue-700">Atualizar medicamento</button>
-          <button onClick={() => onPause(m)} className={`rounded-2xl py-2.5 text-xs font-bold ${m.active ? 'border border-amber-100 bg-amber-50 text-amber-700' : 'border border-emerald-100 bg-emerald-50 text-emerald-700'}`}>{m.active ? 'Pausar' : 'Retomar'}</button>
-        </div>
-        <p className="mt-3 text-center text-[11px] text-slate-400">Para editar ou excluir, abra os detalhes do medicamento.</p>
-      </article>)}
+    <div className="mb-5 flex items-start justify-between gap-4">
+      <div className="min-w-0"><div className="text-[10px] font-bold tracking-[.22em] text-slate-400">SEUS MEDICAMENTOS</div><h2 className="text-2xl font-bold">Medicamentos</h2><p className="mt-1 text-sm text-slate-500">Tudo sobre seus tratamentos em um só lugar.</p></div>
+      <button onClick={onAdd} className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-100" aria-label="Adicionar medicamento"><Plus size={24}/></button>
     </div>
+    {db.meds.length>0&&<>
+      <div className="relative mb-3"><Search size={19} className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"/><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar medicamento" aria-label="Buscar medicamento" className="h-12 w-full rounded-2xl border border-slate-200 bg-white pl-11 pr-10 text-[15px] outline-none transition focus:border-blue-400 focus:ring-4 focus:ring-blue-50"/>{query&&<button onClick={()=>setQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-full p-1.5 text-slate-400" aria-label="Limpar busca"><X size={17}/></button>}</div>
+      <div className="mb-5 flex gap-2 overflow-x-auto pb-1" role="tablist" aria-label="Filtrar medicamentos">
+        {([['all',`Todos ${db.meds.length}`],['active',`Em uso ${activeCount}`],['paused',`Pausados ${pausedCount}`]] as const).map(([key,label])=><button key={key} role="tab" aria-selected={filter===key} onClick={()=>setFilter(key)} className={`shrink-0 rounded-full px-4 py-2 text-sm font-bold transition ${filter===key?'bg-blue-600 text-white':'bg-white text-slate-500 border border-slate-200'}`}>{label}</button>)}
+      </div>
+    </>}
+    {!db.meds.length&&<div className="rounded-[28px] border border-dashed border-slate-300 bg-white p-8 text-center shadow-sm"><div className="mx-auto grid h-16 w-16 place-items-center rounded-2xl bg-blue-50 text-blue-600"><Pill size={30}/></div><b className="mt-4 block text-lg">Nenhum medicamento cadastrado</b><p className="mt-1 text-sm text-slate-500">Adicione seu primeiro medicamento para começar a calcular os próximos horários.</p><button onClick={onAdd} className="mt-5 rounded-2xl bg-blue-600 px-5 py-3 font-black text-white">＋ Adicionar medicamento</button></div>}
+    {db.meds.length>0&&<div className="space-y-3">
+      {filtered.map(m=><article key={m.id} className="overflow-hidden rounded-[24px] border border-slate-100 bg-white shadow-[0_5px_20px_rgba(20,35,60,.045)] transition hover:shadow-[0_8px_28px_rgba(20,35,60,.07)]">
+        <button onClick={()=>onDetail(m)} className="block w-full p-5 text-left" aria-label={`Ver detalhes de ${m.name}`}>
+          <div className="flex items-start gap-4">
+            <div className="grid h-14 w-14 shrink-0 place-items-center overflow-hidden rounded-2xl bg-blue-50 text-blue-600">{m.photo?<img src={m.photo} alt="" className="h-full w-full object-cover"/>:m.form==='Colírio'?<span className="text-2xl">💧</span>:<Pill size={28}/>}</div>
+            <div className="min-w-0 flex-1"><div className="flex items-start justify-between gap-2"><div className="min-w-0"><h3 className="truncate text-[17px] font-bold text-[#182033]">{m.name}</h3><p className="mt-1 text-sm text-slate-500">{m.dose||'1 dose'} <span className="text-slate-300">•</span> {intervalLabel(m)}</p></div><ChevronRight size={20} className="mt-0.5 shrink-0 text-slate-300"/></div><div className="mt-3 flex flex-wrap items-center gap-2"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${m.active?'bg-emerald-50 text-emerald-700':'bg-amber-50 text-amber-700'}`}>{m.active?'Em uso':'Pausado'}</span><span className="rounded-full bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-500">{m.form||'Medicamento'}</span></div></div>
+          </div>
+          <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3"><div><span className="block text-[11px] font-bold uppercase tracking-wide text-slate-400">Próximo horário</span><strong className={`mt-0.5 block text-sm ${!m.start?'text-blue-600':'text-slate-700'}`}>{nextLabel(m)}</strong></div><span className="text-xs font-bold text-blue-600">Ver detalhes</span></div>
+        </button>
+        {!m.start&&<div className="border-t border-slate-100 bg-slate-50/70 px-5 py-3"><button onClick={()=>onStart(m)} className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-bold text-white">Definir primeiro horário</button></div>}
+      </article>)}
+      {!filtered.length&&<div className="rounded-[24px] border border-dashed border-slate-300 bg-white p-8 text-center"><Search size={28} className="mx-auto text-slate-400"/><b className="mt-3 block">Nenhum medicamento encontrado</b><p className="mt-1 text-sm text-slate-500">Tente outro nome ou altere o filtro.</p></div>}
+    </div>}
   </>;
 }
 
