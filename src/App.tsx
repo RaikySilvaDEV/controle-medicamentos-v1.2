@@ -26,22 +26,14 @@ function App() {
       if (!mounted) return;
       setAuthenticated(!!data.session);
       if (!data.session) {
-        localStorage.removeItem('cm-v12-authenticated');
-        localStorage.removeItem('cm-v12-role');
-        localStorage.removeItem('cm-v12-patient-id');
-        setOnboarded(false);
+        localStorage.removeItem('cm-v12-authenticated'); localStorage.removeItem('cm-v12-role'); localStorage.removeItem('cm-v12-patient-id'); setOnboarded(false);
       } else localStorage.setItem('cm-v12-authenticated', '1');
       setAuthChecked(true);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setAuthenticated(!!session);
       if (session) localStorage.setItem('cm-v12-authenticated', '1');
-      else {
-        localStorage.removeItem('cm-v12-authenticated');
-        localStorage.removeItem('cm-v12-role');
-        localStorage.removeItem('cm-v12-patient-id');
-        setOnboarded(false);
-      }
+      else { localStorage.removeItem('cm-v12-authenticated'); localStorage.removeItem('cm-v12-role'); localStorage.removeItem('cm-v12-patient-id'); setOnboarded(false); stopSound(); }
     });
     return () => { mounted = false; listener.subscription.unsubscribe(); };
   }, []);
@@ -49,12 +41,20 @@ function App() {
   async function refresh(id = patientId) { if (!id || refreshLock.current) return; refreshLock.current = true; try { setDb(await loadCloud(id)); } catch (e) { console.error(e); } finally { refreshLock.current = false; } }
   useEffect(() => { if (authenticated && onboarded && patientId) refresh(); }, [authenticated, onboarded, patientId]);
   useEffect(() => { if (!authenticated || !onboarded || !patientId) return subscribeCloud(patientId, () => refresh()); }, [authenticated, onboarded, patientId]);
-  useEffect(() => { if (!patientId || !onboarded) return; seedPatient(patientId).then(() => refresh()).catch(console.error); }, [patientId, onboarded]);
+  useEffect(() => { if (!authenticated || !onboarded || !patientId) return; seedPatient(patientId).then(() => refresh()).catch(console.error); }, [authenticated, onboarded, patientId]);
 
   const schedule = useMemo(() => db.meds.map(m => ({ m, due: dueFor(m, db.events) })).filter((x): x is { m: Med; due: Date } => !!x.due).sort((a, b) => +a.due - +b.due), [db]);
   const pending = schedule.filter(x => x.due.getTime() <= now && (snoozes[x.m.id] || 0) <= now)[0];
   const upcoming = schedule.filter(x => x.due.getTime() > now), next = upcoming[0];
-  useEffect(() => { if (!pending || alarm || done) return; setAlarm({ med: pending.m, due: pending.due }); startSound(); if ('Notification' in window && Notification.permission === 'granted') { try { new Notification('🔔 Hora do medicamento', { body: pending.m.name }); } catch {} } }, [pending?.m.id, pending?.due?.getTime(), alarm, done]);
+
+  // Nunca execute o alarme antes de existir uma sessão autenticada e um paciente carregado.
+  // Isso evita o áudio disparar na tela de login usando dados locais antigos.
+  useEffect(() => {
+    if (!authenticated || !onboarded || !patientId || !pending || alarm || done) return;
+    setAlarm({ med: pending.m, due: pending.due }); startSound();
+    if ('Notification' in window && Notification.permission === 'granted') { try { new Notification('🔔 Hora do medicamento', { body: pending.m.name }); } catch {} }
+  }, [authenticated, onboarded, patientId, pending?.m.id, pending?.due?.getTime(), alarm, done]);
+
   function startSound() { try { const C = window.AudioContext || (window as any).webkitAudioContext; if (!C) return; stopSound(); const c = new C(); audio.current = c; const beep = () => { if (c.state === 'suspended') c.resume().catch(() => {}); const o = c.createOscillator(), g = c.createGain(); o.type = 'square'; o.frequency.value = 880; g.gain.value = .16; o.connect(g); g.connect(c.destination); o.start(); window.setTimeout(() => { try { o.stop(); } catch {} }, 500); }; beep(); timer.current = window.setInterval(beep, 1100); } catch {} }
   function stopSound() { if (timer.current) clearInterval(timer.current); timer.current = null; audio.current?.close(); audio.current = null; }
   async function confirmMed(m: Med) { const item = schedule.find(x => x.m.id === m.id); if (!item || !patientId) return; stopSound(); try { const row = await insertDose(patientId, m.id, item.due.toISOString(), role); const e = { id: row.id, medId: m.id, scheduled: row.scheduled_at, confirmed: row.confirmed_at, by: role === 'patient' ? 'Paciente' : 'Acompanhante' } as DB['events'][number]; const nextDate = new Date(new Date(row.confirmed_at).getTime() + m.interval * 60000); setAlarm(null); setSnoozes(s => ({ ...s, [m.id]: 0 })); await refresh(); setDone({ med: m, event: e, next: nextDate }); } catch (e: any) { alert(e?.message || 'Não foi possível confirmar esta dose.'); await refresh(); } }
