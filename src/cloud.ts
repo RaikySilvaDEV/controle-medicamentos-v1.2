@@ -1,51 +1,30 @@
 import { supabase } from './supabase'
 import type { DB, Event, Med, Role } from './model'
 
-export async function ensureProfile(role: Role, name: string) {
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Sessão não encontrada.')
-  const { error } = await supabase.from('profiles').upsert({ id: user.id, name, role }, { onConflict: 'id' })
-  if (error) throw error
-  return user
-}
-
 export async function getExistingProfile(): Promise<{ role: Role; name: string; patientId: string } | null> {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return null
-  const { data: profile } = await supabase.from('profiles').select('name,role').eq('id', user.id).maybeSingle()
+  const { data: profile, error: profileError } = await supabase.from('profiles').select('name,role').eq('id', user.id).maybeSingle()
+  if (profileError) throw profileError
   if (!profile || (profile.role !== 'patient' && profile.role !== 'companion')) return null
-  const { data: membership } = await supabase.from('patient_members').select('patient_id').eq('user_id', user.id).maybeSingle()
+  const { data: membership, error: membershipError } = await supabase.from('patient_members').select('patient_id').eq('user_id', user.id).limit(1).maybeSingle()
+  if (membershipError) throw membershipError
   if (!membership?.patient_id) return null
   return { role: profile.role as Role, name: profile.name || 'Usuário', patientId: membership.patient_id as string }
 }
 
 export async function getMembership(role: Role, name: string, code?: string) {
-  const user = await ensureProfile(role, name)
+  const cleanName = name.trim() || 'Usuário'
   if (role === 'patient') {
-    const { data: existing } = await supabase.from('patient_members').select('patient_id').eq('user_id', user.id).eq('relation', 'patient').maybeSingle()
-    if (existing?.patient_id) return existing.patient_id as string
-    const { data: patient, error } = await supabase.rpc('create_patient_for_current_user', { p_name: name.trim() || 'Paciente' })
+    const { data: patientId, error } = await supabase.rpc('create_patient_for_current_user', { p_name: cleanName })
     if (error) throw error
-    return patient as string
+    return patientId as string
   }
-  if (!code) throw new Error('Informe o código de acompanhamento.')
-  const { data, error } = await supabase.rpc('join_patient_by_code', { p_code: code.trim().toUpperCase() })
+  if (!code?.trim()) throw new Error('Informe o código de acompanhamento.')
+  const { data: patientId, error } = await supabase.rpc('join_patient_by_share_code', { p_code: code.trim().toUpperCase() })
   if (error) throw error
-  if (!data) throw new Error('Código de acompanhamento inválido.')
-  return data as string
-}
-
-export async function seedPatient(patientId: string) {
-  const { count } = await supabase.from('medications').select('id', { count: 'exact', head: true }).eq('patient_id', patientId)
-  if ((count || 0) > 0) return
-  const meds = [
-    { patient_id: patientId, name: 'Cloridrato de moxifloxacino', interval_minutes: 180, form: 'Colírio', dose: '1 gota' },
-    { patient_id: patientId, name: 'Acetato de prednisolona', interval_minutes: 120, form: 'Colírio', dose: '1 gota' },
-    { patient_id: patientId, name: 'Cloridrato de dorzolamida', interval_minutes: 720, form: 'Colírio', dose: '1 gota' },
-    { patient_id: patientId, name: 'Tartarato de brimonidina', interval_minutes: 720, form: 'Colírio', dose: '1 gota', note: 'Aplicar 7 minutos após a dorzolamida.' }
-  ]
-  const { error } = await supabase.from('medications').insert(meds)
-  if (error) throw error
+  if (!patientId) throw new Error('Código de acompanhamento inválido.')
+  return patientId as string
 }
 
 export async function loadCloud(patientId: string): Promise<DB> {
