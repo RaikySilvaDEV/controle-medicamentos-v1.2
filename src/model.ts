@@ -11,19 +11,9 @@ export const KEY = 'controle-med-v1.2-db';
 export const CHANNEL = 'cm-v12-realtime';
 
 const seed: DB = {
-  patientName: 'Paciente Demo', shareCode: 'DEMO-1234',
-  meds: [
-    { id: 'moxi', name: 'Cloridrato de moxifloxacino', interval: 180, start: null, active: true, form: 'Colírio', dose: '1 gota' },
-    { id: 'pred', name: 'Acetato de prednisolona', interval: 120, start: null, active: true, form: 'Colírio', dose: '1 gota' },
-    { id: 'dorz', name: 'Cloridrato de dorzolamida', interval: 720, start: null, active: true, form: 'Colírio', dose: '1 gota' },
-    { id: 'brim', name: 'Tartarato de brimonidina', interval: 720, start: null, active: true, form: 'Colírio', dose: '1 gota', note: 'Aplicar 7 minutos após a dorzolamida.' }
-  ], events: [], settings: { sound: true, notifications: false }
+  patientName: '', shareCode: '', meds: [], events: [], settings: { sound: true, notifications: false }
 };
 
-/**
- * Converte datas salvas em versões antigas sem deixar "Invalid Date" aparecer.
- * Aceita ISO completo, datetime-local e horários antigos no formato HH:mm.
- */
 export function parseDate(value: unknown): Date | null {
   if (value instanceof Date) return Number.isFinite(value.getTime()) ? value : null;
   if (typeof value === 'number') {
@@ -31,11 +21,9 @@ export function parseDate(value: unknown): Date | null {
     return Number.isFinite(d.getTime()) ? d : null;
   }
   if (typeof value !== 'string' || !value.trim()) return null;
-
   const raw = value.trim();
   const d = new Date(raw);
   if (Number.isFinite(d.getTime())) return d;
-
   const timeOnly = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(raw);
   if (timeOnly) {
     const today = new Date();
@@ -55,8 +43,7 @@ export function load(): DB {
     const raw = localStorage.getItem(KEY);
     if (!raw) return structuredClone(seed);
     const parsed = JSON.parse(raw);
-    if (!parsed?.meds || !Array.isArray(parsed.meds)) return structuredClone(seed);
-
+    if (!parsed || !Array.isArray(parsed.meds)) return structuredClone(seed);
     const meds: Med[] = parsed.meds.map((m: Med) => ({
       ...m,
       start: normalizeStoredDate(m.start),
@@ -66,7 +53,6 @@ export function load(): DB {
       note: m.note || '',
       photo: m.photo || null
     }));
-
     const events: Event[] = Array.isArray(parsed.events)
       ? parsed.events.map((e: Event) => ({
           ...e,
@@ -74,9 +60,10 @@ export function load(): DB {
           confirmed: normalizeStoredDate(e.confirmed) || String(e.confirmed || '')
         }))
       : [];
-
     return {
       ...seed, ...parsed,
+      patientName: String(parsed.patientName || ''),
+      shareCode: String(parsed.shareCode || ''),
       events,
       settings: { ...seed.settings, ...(parsed.settings || {}) },
       meds
@@ -101,27 +88,14 @@ export const duration = (ms: number) => {
   return h ? `${h}h ${String(r).padStart(2, '0')}min` : `${r}min`;
 };
 
-/**
- * A dose nunca avança sozinha quando fica atrasada.
- * Sem confirmação, o vencimento continua sendo o horário original.
- * Depois da confirmação, a próxima dose é calculada a partir do horário
- * real da confirmação, exatamente como definido para atrasos.
- *
- * O primeiro horário definido pelo usuário representa uma dose que já foi
- * tomada; portanto, a primeira próxima dose é start + interval.
- */
 export const dueFor = (m: Med, events: Event[]) => {
   if (!m.active) return null;
-
   const last = [...events]
     .filter(e => e.medId === m.id)
     .map(e => ({ ...e, confirmedDate: parseDate(e.confirmed) }))
     .filter(e => e.confirmedDate)
     .sort((a, b) => b.confirmedDate!.getTime() - a.confirmedDate!.getTime())[0];
-
   const base = last?.confirmedDate || parseDate(m.start);
   if (!base || !Number.isFinite(m.interval) || m.interval <= 0) return null;
   return new Date(base.getTime() + m.interval * 60000);
 };
-
-export { seed };
