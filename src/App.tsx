@@ -40,8 +40,6 @@ function App() {
   useEffect(()=>{let mounted=true;supabase.auth.getSession().then(async({data})=>{if(!mounted)return;setAuthenticated(!!data.session);clearAuthHash();if(!data.session){localStorage.removeItem('cm-v12-authenticated');localStorage.removeItem('cm-v12-role');localStorage.removeItem('cm-v12-patient-id');setOnboarded(false);setPatientId('');setAccount({name:'',email:'',avatarUrl:null});}else{localStorage.setItem('cm-v12-authenticated','1');try{await hydrateSession()}catch(e){console.error(e)}}setAuthChecked(true)});const{data:listener}=supabase.auth.onAuthStateChange(async(_event,session)=>{setAuthenticated(!!session);clearAuthHash();if(session){localStorage.setItem('cm-v12-authenticated','1');try{await hydrateSession()}catch(e){console.error(e)}}else{localStorage.removeItem('cm-v12-authenticated');localStorage.removeItem('cm-v12-role');localStorage.removeItem('cm-v12-patient-id');setOnboarded(false);setPatientId('');setAccount({name:'',email:'',avatarUrl:null});stopSound();alarmKey.current=null}});return()=>{mounted=false;listener.subscription.unsubscribe()}},[]);
   useEffect(()=>{const id=window.setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(id)},[]);
 
-  // Web Audio needs a user gesture before browsers allow audible playback later.
-  // Arm it on the first interaction, but never start an alarm merely because the page loaded.
   useEffect(()=>{const arm=()=>{if(audioArmed.current)return;audioArmed.current=true;try{const C=window.AudioContext||(window as any).webkitAudioContext;if(!C)return;const c=new C();if(c.state==='suspended')c.resume().catch(()=>{});audio.current=c}catch{}};window.addEventListener('pointerdown',arm,{passive:true});window.addEventListener('keydown',arm,{passive:true});return()=>{window.removeEventListener('pointerdown',arm);window.removeEventListener('keydown',arm)}},[]);
   useEffect(()=>{const onVisible=()=>{setNow(Date.now());if(document.visibilityState==='visible'&&audio.current?.state==='suspended')audio.current.resume().catch(()=>{});if(document.visibilityState==='visible'&&authenticated&&onboarded&&patientId)refresh()};document.addEventListener('visibilitychange',onVisible);window.addEventListener('focus',onVisible);return()=>{document.removeEventListener('visibilitychange',onVisible);window.removeEventListener('focus',onVisible)}},[authenticated,onboarded,patientId]);
 
@@ -73,7 +71,35 @@ function App() {
     }catch{}
   }
   function stopSound(){if(timer.current)clearInterval(timer.current);timer.current=null}
-  async function confirmMed(m:Med){const item=schedule.find(x=>x.m.id===m.id);if(!item||!patientId)return;stopSound();try{const row=await insertDose(patientId,m.id,item.due.toISOString(),role);const e={id:row.id,medId:m.id,scheduled:row.scheduled_at,confirmed:row.confirmed_at,by:role==='patient'?'Paciente':'Acompanhante'} as DB['events'][number];const nextDate=new Date(new Date(row.confirmed_at).getTime()+m.interval*60000);setAlarm(null);alarmKey.current=null;setSnoozes(s=>({...s,[m.id]:0}));await refresh();setDone({med:m,event:e,next:nextDate})}catch(e:any){alert(e?.message||'Não foi possível confirmar esta dose.');await refresh()}}
+
+  async function confirmMed(m:Med){
+    const item=schedule.find(x=>x.m.id===m.id);
+    if(!item||!patientId)return;
+    stopSound();
+    try{
+      const row=await insertDose(patientId,m.id,item.due.toISOString(),role);
+      const e={id:row.id,medId:m.id,scheduled:row.scheduled_at,confirmed:row.confirmed_at,by:role==='patient'?'Paciente':'Acompanhante'} as DB['events'][number];
+      const nextDate=new Date(new Date(row.confirmed_at).getTime()+m.interval*60000);
+
+      // Atualização otimista: a dose confirmada sai imediatamente da tela e o
+      // próximo horário passa a ser calculado a partir do horário REAL da confirmação.
+      setDb(current=>current.events.some(existing=>existing.id===e.id)
+        ? current
+        : {...current,events:[...current.events,e]});
+      setAlarm(null);
+      setDetail(null);
+      setSnoozes(s=>({...s,[m.id]:0}));
+      alarmKey.current=null;
+      setDone({med:m,event:e,next:nextDate});
+
+      // Sincroniza novamente com o Supabase sem bloquear a atualização visual.
+      void refresh();
+    }catch(e:any){
+      alert(e?.message||'Não foi possível confirmar esta dose.');
+      void refresh();
+    }
+  }
+
   function snooze(m:Med,min:number){stopSound();alarmKey.current=null;setSnoozes(s=>({...s,[m.id]:Date.now()+min*60000}));setAlarm(null)}
   async function setFirstTime(iso:string){if(!startMed||!patientId)return;try{await upsertMedication(patientId,{...startMed,start:iso,active:true});await refresh();setStartMed(null)}catch(e:any){alert(e?.message||'Não foi possível salvar o horário.')}}
   async function pause(m:Med){if(!patientId)return;try{await upsertMedication(patientId,{...m,active:!m.active});await refresh();setDetail(null)}catch(e:any){alert(e?.message||'Não foi possível alterar o medicamento.')}}
