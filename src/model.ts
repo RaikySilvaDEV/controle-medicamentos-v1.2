@@ -1,5 +1,5 @@
 export type Role = 'patient' | 'companion';
-export type Tab = 'home' | 'meds' | 'history' | 'settings';
+export type Tab = 'home' | 'meds' | 'history' | 'settings' | 'report';
 export type Med = {
   id: string; name: string; interval: number; start: string | null; active: boolean;
   form?: string; dose?: string; note?: string; photo?: string | null;
@@ -88,6 +88,11 @@ export const duration = (ms: number) => {
   return h ? `${h}h ${String(r).padStart(2, '0')}min` : `${r}min`;
 };
 
+/**
+ * Calcula a próxima dose sempre a partir do último horário REAL de confirmação.
+ * O horário previsto da dose atual é registrado em Event.scheduled; se a pessoa
+ * confirmar atrasado, a próxima dose passa a contar do horário real confirmado.
+ */
 export const dueFor = (m: Med, events: Event[]) => {
   if (!m.active) return null;
   const last = [...events]
