@@ -4,29 +4,16 @@ import type { DB, Role } from './model';
 import { supabase } from './supabase';
 import { getMembership } from './cloud';
 
-export function AuthGate({ onComplete }: { onComplete: (role: Role, name: string, patientId: string) => void }) {
+export function AuthGate({ onComplete }: { onComplete: (role: Role, name: string) => void }) {
   const [register, setRegister] = useState(false), [name, setName] = useState(''), [email, setEmail] = useState(''), [pass, setPass] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   async function submit() {
     if (!email.trim() || pass.length < 6 || (register && !name.trim())) return setError('Preencha os campos. A senha precisa ter pelo menos 6 caracteres.');
     setBusy(true); setError('');
     try {
-      let user = (await supabase.auth.getUser()).data.user;
-      if (!user) {
-        if (register) {
-          const { data, error } = await supabase.auth.signUp({ email: email.trim(), password: pass });
-          if (error) throw error;
-          if (!data.session) throw new Error('Cadastro criado. Confirme seu e-mail e depois entre no aplicativo.');
-          user = data.user;
-        } else {
-          const { data, error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: pass });
-          if (error) throw error; user = data.user;
-        }
-      }
-      if (!user) throw new Error('Não foi possível iniciar a sessão.');
+      if (register) { const { data, error } = await supabase.auth.signUp({ email: email.trim(), password: pass, options: { data: { name: name.trim() } } }); if (error) throw error; if (!data.session) throw new Error('Cadastro criado. Confirme seu e-mail e depois entre.'); }
+      else { const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: pass }); if (error) throw error; }
       const displayName = register ? name.trim() : (localStorage.getItem('cm-v12-name') || email.split('@')[0]);
-      const patientId = await getMembership('patient', displayName);
-      localStorage.setItem('cm-v12-authenticated', '1'); localStorage.setItem('cm-v12-name', displayName); localStorage.setItem('cm-v12-role', 'patient'); localStorage.setItem('cm-v12-patient-id', patientId);
-      onComplete('patient', displayName, patientId);
+      localStorage.setItem('cm-v12-authenticated', '1'); localStorage.setItem('cm-v12-name', displayName); onComplete('patient', displayName);
     } catch (e: any) { setError(e?.message || 'Não foi possível entrar.'); } finally { setBusy(false); }
   }
   return <div className="min-h-screen bg-[#f5f7fb] px-5 py-10 text-[#182033]"><div className="mx-auto max-w-md rounded-[32px] bg-white p-7 shadow-xl"><div className="mx-auto grid h-20 w-20 place-items-center rounded-[26px] bg-blue-50 text-blue-600"><Pill size={42}/></div><h1 className="mt-6 text-center text-3xl font-bold">Controle de Medicamentos</h1><p className="mt-2 text-center text-slate-500">Organize seus horários e conte com alguém de confiança para acompanhar você.</p>{register && <input value={name} onChange={e => setName(e.target.value)} placeholder="Nome completo" className="mt-6 w-full rounded-2xl border border-slate-200 p-4"/>}<input value={email} onChange={e => setEmail(e.target.value)} placeholder="E-mail" type="email" className="mt-3 w-full rounded-2xl border border-slate-200 p-4"/><input value={pass} onChange={e => setPass(e.target.value)} placeholder="Senha" type="password" className="mt-3 w-full rounded-2xl border border-slate-200 p-4"/>{error && <div className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div>}<button disabled={busy} onClick={submit} className="mt-5 w-full rounded-2xl bg-blue-600 py-4 font-black text-white disabled:opacity-50">{busy ? 'AGUARDE...' : register ? 'CRIAR CONTA' : 'ENTRAR'}</button><button onClick={() => { setRegister(!register); setError(''); }} className="mt-3 w-full rounded-2xl border border-blue-200 py-4 font-bold text-blue-600">{register ? 'Já tenho uma conta' : 'Criar uma conta'}</button></div></div>;
@@ -34,13 +21,6 @@ export function AuthGate({ onComplete }: { onComplete: (role: Role, name: string
 
 export function OnboardingGate({ db, onComplete }: { db: DB; onComplete: (r: Role, name: string, patientId: string) => void }) {
   const [role, setRole] = useState<Role>('patient'), [code, setCode] = useState(''), [error, setError] = useState(''), [busy, setBusy] = useState(false);
-  async function finish() {
-    setBusy(true); setError('');
-    try {
-      const name = localStorage.getItem('cm-v12-name') || 'Usuário';
-      const patientId = await getMembership(role, name, role === 'companion' ? code : undefined);
-      localStorage.setItem('cm-v12-role', role); localStorage.setItem('cm-v12-patient-id', patientId); onComplete(role, name, patientId);
-    } catch (e: any) { setError(e?.message || 'Não foi possível concluir.'); } finally { setBusy(false); }
-  }
+  async function finish() { setBusy(true); setError(''); try { const name = localStorage.getItem('cm-v12-name') || 'Usuário'; const patientId = await getMembership(role, name, role === 'companion' ? code : undefined); localStorage.setItem('cm-v12-role', role); localStorage.setItem('cm-v12-patient-id', patientId); onComplete(role, name, patientId); } catch (e: any) { setError(e?.message || 'Não foi possível concluir.'); } finally { setBusy(false); } }
   return <div className="min-h-screen bg-[#f5f7fb] px-5 py-10 text-[#182033]"><div className="mx-auto max-w-md rounded-[32px] bg-white p-7 shadow-xl"><div className="mx-auto grid h-20 w-20 place-items-center rounded-[26px] bg-blue-50 text-blue-600"><UsersRound size={40}/></div><h1 className="mt-6 text-center text-3xl font-bold">Como você vai usar?</h1><p className="mt-2 text-center text-slate-500">Escolha o perfil para deixar os alertas e registros adequados.</p><button onClick={() => setRole('patient')} className={`mt-6 flex w-full items-center gap-3 rounded-2xl border p-4 text-left ${role === 'patient' ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}><Pill className="text-blue-600"/><span><b className="block">Sou paciente</b><small className="text-slate-500">Organizar e registrar meus medicamentos.</small></span></button><button onClick={() => setRole('companion')} className={`mt-3 flex w-full items-center gap-3 rounded-2xl border p-4 text-left ${role === 'companion' ? 'border-blue-500 bg-blue-50' : 'border-slate-200'}`}><UsersRound className="text-blue-600"/><span><b className="block">Acompanhar familiar</b><small className="text-slate-500">Ver horários e registrar administrações.</small></span></button>{role === 'companion' && <input value={code} onChange={e => setCode(e.target.value)} placeholder="Código de compartilhamento" className="mt-4 w-full rounded-2xl border border-slate-200 p-4"/>}{error && <div className="mt-3 rounded-2xl bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div>}<button disabled={busy} onClick={finish} className="mt-5 w-full rounded-2xl bg-blue-600 py-4 font-black text-white disabled:opacity-50">{busy ? 'AGUARDE...' : 'CONTINUAR'}</button></div></div>;
 }
